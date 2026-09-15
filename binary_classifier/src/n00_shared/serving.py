@@ -142,6 +142,33 @@ def query_endpoint_scores(endpoint_name: str, records: list[dict], *, chunk_size
     return scores
 
 
+def _as_endpoint_dict(payload) -> Dict[str, Any]:
+    if payload is None:
+        return {}
+    if isinstance(payload, dict):
+        return payload
+    if hasattr(payload, "to_dict"):
+        try:
+            return dict(payload.to_dict())
+        except Exception:
+            pass
+    return {}
+
+
+def _endpoint_failure_message(payload) -> str | None:
+    data = _as_endpoint_dict(payload)
+    state = data.get("state") or {}
+    updating = str(state.get("config_update") or "")
+    if updating == "UPDATE_FAILED":
+        return "config_update=UPDATE_FAILED"
+    cfg = data.get("config") or data.get("pending_config") or {}
+    for ent in cfg.get("served_entities") or []:
+        st = (ent or {}).get("state") or {}
+        if str(st.get("deployment") or "") == "DEPLOYMENT_FAILED":
+            return str(st.get("deployment_state_message") or "DEPLOYMENT_FAILED")
+    return None
+
+
 def wait_endpoint_ready(endpoint_name: str, timeout_s: int = 1800, poll_s: int = 15) -> None:
     from mlflow.deployments import get_deploy_client
 
@@ -150,7 +177,10 @@ def wait_endpoint_ready(endpoint_name: str, timeout_s: int = 1800, poll_s: int =
     last = None
     while time.time() < deadline:
         last = client.get_endpoint(endpoint_name)
-        state = (last or {}).get("state") or {}
+        failed = _endpoint_failure_message(last)
+        if failed:
+            raise RuntimeError(f"endpoint {endpoint_name} deploy failed: {failed}")
+        state = _as_endpoint_dict(last).get("state") or {}
         ready = str(state.get("ready") or "")
         updating = str(state.get("config_update") or "")
         if ready == "READY" and updating in {"", "NOT_UPDATING"}:

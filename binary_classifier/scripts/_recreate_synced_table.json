@@ -1,0 +1,12 @@
+{
+  "name": "ml_dev.adult_income.adult_features_online",
+  "database_instance_name": "adult-income-ofs-dev",
+  "logical_database_name": "ml_dev",
+  "spec": {
+    "scheduling_policy": "TRIGGERED",
+    "source_table_full_name": "ml_dev.adult_income.adult_features",
+    "primary_key_columns": ["row_id"],
+    "existing_pipeline_id": "b0f0032b-33ca-4b1d-a6f0-bef25ef9523c",
+    "create_database_objects_if_missing": true
+  }
+}

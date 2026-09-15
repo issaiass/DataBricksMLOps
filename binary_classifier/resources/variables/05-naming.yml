@@ -1,7 +1,7 @@
 # Jobs UI names, MLflow experiment paths, and target-overridden aliases/modes.
 variables:
   dataset_shortname:
-    description: Dataset label in Jobs UI ([<target> <user>] <dataset>-<model>-<job-type>)
+    description: Dataset label in Jobs UI ([<target> <user>] <dataset>-<model>-<job-or-pipeline>)
     default: adult
   job_user_shortname:
     description: Deployer handle (email local-part) in Jobs UI names
@@ -20,6 +20,12 @@ variables:
     default: "[${bundle.target} ${var.job_user_shortname}] ${var.dataset_shortname}-${var.model_name}-cleanup"
   feature_refresh_job_name:
     default: "[${bundle.target} ${var.job_user_shortname}] ${var.dataset_shortname}-${var.model_name}-feature-store"
+  online_sync_pipeline_name:
+    description: >-
+      Lakeflow pipeline display name only (Jobs & Pipelines). Same binder as
+      jobs: [<target> <user>] <dataset>-<model>-<task>-pipeline. Databricks
+      DatabaseSyncTable pipelines may ignore this and keep "Synced table: …".
+    default: "[${bundle.target} ${var.job_user_shortname}] ${var.dataset_shortname}-${var.model_name}-features-pipeline"
   experiment_shortname:
     description: MLflow experiment leaf name (same binder for all notebooks on a target)
     default: uc-adult-xgb

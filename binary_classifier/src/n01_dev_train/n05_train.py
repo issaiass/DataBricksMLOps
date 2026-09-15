@@ -92,7 +92,11 @@ def run(settings: Settings) -> None:
 
     with mlflow.start_run(run_name=timestamped_run_name()) as run:
         model.fit(X, y)
-        example = X.head(5)
+        example = X.head(5).copy()
+        for col in example.columns:
+            dtype = str(example[col].dtype)
+            if dtype in {"int8", "int16", "int32", "Int8", "Int16", "Int32"}:
+                example[col] = example[col].astype("int64")
         signature = infer_signature(example, model.predict_proba(example)[:, 1])
         mlflow.log_param("dataset", "UCI Adult Census Income")
         mlflow.log_param("dataset_url", UCI_DATASET_URL)

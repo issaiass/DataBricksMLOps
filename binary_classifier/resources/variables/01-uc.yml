@@ -47,3 +47,15 @@ variables:
     default: ""
   volume_name:
     default: mlops_files
+  online_store_name:
+    description: Databricks Online Feature Store (Lakebase) name for Model Serving lookup
+    default: adult-income-ofs
+  online_catalog:
+    description: Standard UC catalog that holds the published online table (not a Lakebase managed catalog)
+    default: ml_dev
+  online_feature_table:
+    description: Published online table leaf name
+    default: adult_features_online
+  online_store_capacity:
+    description: Lakebase CU size for the online store (CU_1, CU_2, CU_4, CU_8)
+    default: CU_1

@@ -10,7 +10,11 @@ from __future__ import annotations
 from pyspark.sql import functions as F
 
 from src.n00_shared.dataset import ENGINEERED_FEATURE_COLS, SPLIT_COL
-from src.n00_shared.feature_store import publish_feature_table, write_label_table
+from src.n00_shared.feature_store import (
+    ensure_online_features,
+    publish_feature_table,
+    write_label_table,
+)
 from src.n00_shared.runtime import Settings, configure_mlflow, load_settings
 
 
@@ -56,6 +60,7 @@ def run(settings: Settings) -> None:
         )
     write_label_table(spark, raw, settings)
     publish_feature_table(spark, settings, raw)
+    ensure_online_features(spark, settings)
     print(
         f"feature store {settings.feature_fq} pk={settings.id_col} "
         f"engineered={ENGINEERED_FEATURE_COLS} labels {settings.label_fq}"

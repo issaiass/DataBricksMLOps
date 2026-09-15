@@ -1,0 +1,6 @@
+{
+  "spec": {
+    "postgres_database": "databricks_postgres",
+    "branch": "projects/adult-income-ofs-dev/branches/production"
+  }
+}

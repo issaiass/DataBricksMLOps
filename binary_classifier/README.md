@@ -238,8 +238,35 @@ Catalog / schema / model / `evaluate_mode` come from **task env / bundle substit
 
 ## Reference
 
-**Jobs UI names:** `[${bundle.target} ${var.job_user_shortname}] ${var.dataset_shortname}-${var.model_name}-<type>`  
-Example: `[dev issaiass] adult-adult_income_clf-train`. Types: `train`, `feature-store`, `promotion-gate`, `promotion-cutover`, `predict`, `monitor`, `cleanup`.
+**Jobs & Pipelines UI names:** `[${bundle.target} ${var.job_user_shortname}] ${var.dataset_shortname}-${var.model_name}-<job-or-pipeline>`  
+`<user>` is `${workspace.current_user.short_name}` (bundle var `job_user_shortname`). Examples below use `issaiass`. The Unity Catalog **table** `adult_features_online` is not renamed.
+
+### `databricks bundle deploy --target dev`
+
+| Resource | Jobs UI name |
+| --- | --- |
+| Job `train` | `[dev issaiass] adult-adult_income_clf-train` |
+| Job `feature_refresh` | `[dev issaiass] adult-adult_income_clf-feature-store` |
+| Job `batch` | `[dev issaiass] adult-adult_income_clf-predict` |
+| Job `monitor` | `[dev issaiass] adult-adult_income_clf-monitor` |
+| Job `cleanup` | `[dev issaiass] adult-adult_income_clf-cleanup` |
+| Pipeline (runtime, not a DAB resource) | Intended `[dev issaiass] adult-adult_income_clf-features-pipeline` after `publish_table` (train/`feature_refresh` task `features`). Databricks Online Feature Store **DatabaseSyncTable** pipelines often keep `Synced table: ml_dev.adult_income.adult_features_online <id>` and reject a rename via the Pipelines API. |
+
+Not deployed on **dev:** `promotion_gate`, `promotion_cutover`.
+
+### `databricks bundle deploy --target prod`
+
+| Resource | Jobs UI name |
+| --- | --- |
+| Job `promotion_gate` | `[prod issaiass] adult-adult_income_clf-promotion-gate` |
+| Job `promotion_cutover` | `[prod issaiass] adult-adult_income_clf-promotion-cutover` |
+| Job `feature_refresh` | `[prod issaiass] adult-adult_income_clf-feature-store` |
+| Job `batch` | `[prod issaiass] adult-adult_income_clf-predict` |
+| Job `monitor` | `[prod issaiass] adult-adult_income_clf-monitor` |
+| Job `cleanup` | `[prod issaiass] adult-adult_income_clf-cleanup` |
+| Pipeline (runtime after prod `features`) | Intended `[prod issaiass] adult-adult_income_clf-features-pipeline`. Databricks may keep `Synced table: ml_prod.adult_income.adult_features_online <id>`. |
+
+Not deployed on **prod:** `train`.
 
 Do **not** set bundle `mode: development` — it prefixes UC model names and breaks registration.
 
@@ -264,6 +291,7 @@ Do **not** set bundle `mode: development` — it prefixes UC model names and bre
 | --- | --- | --- |
 | `raw_table` | `adult_raw` | seed |
 | `feature_table` | `adult_features` | features (no label column) |
+| `online_feature_table` | `adult_features_online` | `publish_table` (OFS copy; leaf name is a UC identifier, not the Jobs UI pipeline name) |
 | `label_table` | `adult_labels` | features |
 | `eda_profile_table` | `adult_eda_profile` | EDA (dev) |
 | `xai_explanation_table` | `adult_xai` | XAI (dev) |

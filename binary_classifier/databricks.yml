@@ -34,6 +34,8 @@ targets:
       evaluate_mode: dev
       batch_alias: dev
       endpoint_name: adult-income-clf-dev
+      online_store_name: adult-income-ofs-dev
+      online_catalog: ${var.dev_catalog}
     sync:
       include:
         - notebooks/n01_dev_train/**
@@ -57,6 +59,8 @@ targets:
       evaluate_mode: prod_gate
       batch_alias: prod
       endpoint_name: adult-income-clf-prod
+      online_store_name: adult-income-ofs-prod
+      online_catalog: ${var.prod_catalog}
     sync:
       include:
         - notebooks/n02_prod_gate/**

@@ -1,0 +1,74 @@
+{
+  "run_name": "pin-dev-serving-adult-income",
+  "tasks": [
+    {
+      "task_key": "pin",
+      "environment_key": "ml_env",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/issaiass@hotmail.com/.ai_dev_kit/pin_dev_serving",
+        "source": "WORKSPACE",
+        "base_parameters": {
+          "BUNDLE_ROOT": "/Workspace/Users/issaiass@hotmail.com/.bundle/adult-income-binary/dev",
+          "DEV_CATALOG": "ml_dev",
+          "PROD_CATALOG": "ml_prod",
+          "CATALOG": "ml_dev",
+          "SCHEMA": "adult_income",
+          "MODEL_NAME": "adult_income_clf",
+          "SOURCE_MODEL_NAME": "ml_dev.adult_income.adult_income_clf",
+          "DEST_MODEL_NAME": "ml_prod.adult_income.adult_income_clf",
+          "EVALUATE_MODE": "dev",
+          "BATCH_ALIAS": "dev",
+          "ALLOW_CHAMPION_FALLBACK": "false",
+          "ALLOW_CANARY": "false",
+          "EXPERIMENT_PATH": "/Shared/mlops/binary_classifier/[dev issaiass] uc-adult-xgb",
+          "ENDPOINT_NAME": "adult-income-clf-dev",
+          "ONLINE_STORE_NAME": "adult-income-ofs-dev",
+          "ONLINE_CATALOG": "ml_dev",
+          "ONLINE_FEATURE_TABLE": "adult_features_online",
+          "ONLINE_STORE_CAPACITY": "CU_1",
+          "ONLINE_SYNC_PIPELINE_NAME": "[dev issaiass] adult-adult_income_clf-features-pipeline",
+          "JOB_RUN_AS_SP": "REPLACE_ME_JOB_SP",
+          "TRAIN_RUN_AS_SP": "REPLACE_ME_TRAIN_SP",
+          "APPROVER_IDENTITIES": "REPLACE_ME_APPROVER@example.com",
+          "COMPARE_METRIC": "roc_auc",
+          "COMPARE_HIGHER_IS_BETTER": "true",
+          "COMPARE_MARGIN": "0.0",
+          "MIN_EVAL_ROWS": "200",
+          "MIN_TABLE_ROWS": "200",
+          "MAX_NULL_RATE": "0.4",
+          "LABEL_WINDOW": "P365D",
+          "EVAL_MIN_ROC_AUC": "0.70",
+          "TRAIN_SEED": "42",
+          "CANARY_PERCENT": "10",
+          "CANARY_WARMUP_S": "120",
+          "ENV_MANAGER": "local",
+          "SECRET_SCOPE": "mlops-adult",
+          "RAW_TABLE": "adult_raw",
+          "FEATURE_TABLE": "adult_features",
+          "LABEL_TABLE": "adult_labels",
+          "PREDICTIONS_TABLE": "adult_predictions",
+          "INFERENCE_TABLE": "adult_inference_logs",
+          "EDA_PROFILE_TABLE": "adult_eda_profile",
+          "XAI_EXPLANATION_TABLE": "adult_xai",
+          "MONITOR_STATUS_TABLE": "adult_monitor_status",
+          "LABEL_COL": "income_gt_50k",
+          "ID_COL": "row_id",
+          "EVENT_TIME_COL": ""
+        }
+      }
+    }
+  ],
+  "environments": [
+    {
+      "environment_key": "ml_env",
+      "spec": {
+        "client": "4",
+        "dependencies": [
+          "mlflow==3.3.2",
+          "databricks-feature-engineering>=0.16.0",
+          "-e /Workspace/Users/issaiass@hotmail.com/.bundle/adult-income-binary/dev"
+        ]
+      }
+    }
+  ]
+}

@@ -110,6 +110,11 @@ def test_load_settings_from_baked_env(monkeypatch):
         "CANARY_PERCENT": "10",
         "CANARY_WARMUP_S": "120",
         "ENDPOINT_NAME": "adult-income-clf-dev",
+        "ONLINE_STORE_NAME": "adult-income-ofs-dev",
+        "ONLINE_CATALOG": "ml_dev",
+        "ONLINE_FEATURE_TABLE": "adult_features_online",
+        "ONLINE_STORE_CAPACITY": "CU_1",
+        "ONLINE_SYNC_PIPELINE_NAME": "[dev issaiass] adult-adult_income_clf-features-pipeline",
         "ENV_MANAGER": "local",
         "SECRET_SCOPE": "mlops-adult",
         "TRAIN_RUN_AS_SP": "train-sp",
@@ -124,6 +129,8 @@ def test_load_settings_from_baked_env(monkeypatch):
         monkeypatch.setenv(key, value)
     loaded = load_settings()
     assert loaded.catalog == "ml_dev"
+    assert loaded.online_store_name == "adult-income-ofs-dev"
+    assert loaded.online_sync_pipeline_name == "[dev issaiass] adult-adult_income_clf-features-pipeline"
     assert loaded.allow_champion_fallback is False
     assert loaded.compare_margin == 0.01
     assert os.environ["EVALUATE_MODE"] == "dev"

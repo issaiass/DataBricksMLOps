@@ -59,6 +59,27 @@ def test_query_endpoint_scores_empty_and_missing_name():
         query_endpoint_scores("  ", [{"age": 1}])
 
 
+def test_endpoint_failure_message_from_update_failed():
+    from src.n00_shared.serving import _endpoint_failure_message
+
+    assert _endpoint_failure_message({"state": {"config_update": "UPDATE_FAILED"}})
+    assert _endpoint_failure_message(
+        {
+            "pending_config": {
+                "served_entities": [
+                    {
+                        "state": {
+                            "deployment": "DEPLOYMENT_FAILED",
+                            "deployment_state_message": "no online store",
+                        }
+                    }
+                ]
+            }
+        }
+    ) == "no online store"
+    assert _endpoint_failure_message({"state": {"ready": "READY"}}) is None
+
+
 def test_missing_endpoint_detects_common_errors():
     assert _missing_endpoint(RuntimeError("RESOURCE_DOES_NOT_EXIST"))
     assert _missing_endpoint(FileNotFoundError("endpoint not found"))

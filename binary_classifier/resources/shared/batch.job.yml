@@ -53,6 +53,11 @@ resources:
               ALLOW_CANARY: ${var.allow_canary}
               EXPERIMENT_PATH: ${var.experiment_path}
               ENDPOINT_NAME: ${var.endpoint_name}
+              ONLINE_STORE_NAME: ${var.online_store_name}
+              ONLINE_CATALOG: ${var.online_catalog}
+              ONLINE_FEATURE_TABLE: ${var.online_feature_table}
+              ONLINE_STORE_CAPACITY: ${var.online_store_capacity}
+              ONLINE_SYNC_PIPELINE_NAME: ${var.online_sync_pipeline_name}
               JOB_RUN_AS_SP: ${var.job_run_as_sp}
               TRAIN_RUN_AS_SP: ${var.train_run_as_sp}
               APPROVER_IDENTITIES: ${var.approver_identities}

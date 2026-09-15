@@ -46,6 +46,11 @@ _KEYS = (
     "CANARY_PERCENT",
     "CANARY_WARMUP_S",
     "ENDPOINT_NAME",
+    "ONLINE_STORE_NAME",
+    "ONLINE_CATALOG",
+    "ONLINE_FEATURE_TABLE",
+    "ONLINE_STORE_CAPACITY",
+    "ONLINE_SYNC_PIPELINE_NAME",
     "ENV_MANAGER",
     "SECRET_SCOPE",
     "TRAIN_RUN_AS_SP",
@@ -175,6 +180,11 @@ class Settings:
     canary_percent: int
     canary_warmup_s: int
     endpoint_name: str
+    online_store_name: str
+    online_catalog: str
+    online_feature_table: str
+    online_store_capacity: str
+    online_sync_pipeline_name: str
     env_manager: str
     secret_scope: str
     train_run_as_sp: str
@@ -218,6 +228,10 @@ class Settings:
         return fq(self.catalog, self.schema, self.monitor_status_table)
 
     @property
+    def online_feature_fq(self) -> str:
+        return fq(self.online_catalog, self.schema, self.online_feature_table)
+
+    @property
     def active_model(self) -> str:
         if self.evaluate_mode == "prod_gate":
             return self.dest_model_name
@@ -258,6 +272,11 @@ def load_settings() -> Settings:
         canary_percent=int(baked("CANARY_PERCENT")),
         canary_warmup_s=int(baked("CANARY_WARMUP_S")),
         endpoint_name=baked("ENDPOINT_NAME"),
+        online_store_name=baked("ONLINE_STORE_NAME", ""),
+        online_catalog=baked("ONLINE_CATALOG", ""),
+        online_feature_table=baked("ONLINE_FEATURE_TABLE", ""),
+        online_store_capacity=baked("ONLINE_STORE_CAPACITY", "CU_1"),
+        online_sync_pipeline_name=baked("ONLINE_SYNC_PIPELINE_NAME", ""),
         env_manager=baked("ENV_MANAGER", "local"),
         secret_scope=baked("SECRET_SCOPE"),
         train_run_as_sp=baked("TRAIN_RUN_AS_SP"),

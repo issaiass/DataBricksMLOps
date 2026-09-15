@@ -1,49 +1,52 @@
 # DatabricksMLOps
 
 
-For the Adult Census Income walkthrough (jobs, aliases, approval, cleanup), see [`binary_classifier/README.md`](binary_classifier/README.md).
+Need the long walkthrough for jobs, aliases, approval, and cleanup? Open [`binary_classifier/README.md`](binary_classifier/README.md).
 
 
 <details open>
 <summary> <b>Brief Review</b></summary>
 
-This repository is a **classic ML control plane** on Databricks: tabular training with scikit-learn / XGBoost, Unity Catalog Models, Lakeflow Jobs, and Databricks Asset Bundles (DABs). The first example is a **binary classifier** on the [UCI Adult Census Income](https://archive.ics.uci.edu/dataset/2/adult) dataset (`income_gt_50k`: `>50K` = 1, `<=50K` = 0).
+This repo is a classic ML control plane on Databricks. You train tabular models with scikit-learn and XGBoost, register them in Unity Catalog, and run everything with Lakeflow Jobs plus Databricks Asset Bundles (DABs).
 
-You work in **two environments only**:
+The first example is a **binary classifier** on the [UCI Adult Census Income](https://archive.ics.uci.edu/dataset/2/adult) dataset. The label is `income_gt_50k`: `>50K` is 1 and `<=50K` is 0.
 
-- **dev** — train, EDA, XAI, Compare, `promotion_ready`, smoke, batch `@dev`, monitor
-- **prod** — `copy_register` + evaluate-only (`promotion_gate`), then human `Approved`, then `promotion_cutover` (deploy / optional canary)
+There are **two environments only**:
 
-Training **never** writes the production alias `@prod`. Dest serving versions are created only by `copy_register`. Registry URI is `databricks-uc` only (no Workspace Model Registry stages).
+- **dev**: train, EDA, XAI, Compare, `promotion_ready`, smoke, batch `@dev`, monitor
+- **prod**: copy the trained model (`promotion_gate`), wait for a human `Approved` tag, then go live (`promotion_cutover`)
 
-The loop:
+Training never writes `@prod`. New prod model versions come only from `copy_register`. The registry URI is `databricks-uc`. No Workspace Model Registry stages.
 
-1. Reproducible **train in `dev`**
+The loop looks like this:
+
+1. Train in **dev** (reproducible job, not a laptop pickle)
 2. Register the **winner** in Unity Catalog (`ml_dev`)
-3. Absolute **evaluate**, then **Compare** (tags only; XAI in parallel, not a gate)
-4. **`promotion_ready`** (`ready=true` + `ml_dev` `@champion` on go)
-5. Promote the **artifact** (`copy_register` on **prod**, pinned `go_version`)
-6. **Prod evaluate-only** → human tag → **`approval_check` + deploy**
-7. Batch / serve → monitor → rollback or enqueue **dev** retrain
+3. Absolute **evaluate**, then **Compare** (tags only). XAI runs in parallel and is not a gate.
+4. **`promotion_ready`**: on go, `ready=true` and `ml_dev` `@champion`
+5. Copy that artifact to **prod** with a pinned `go_version`
+6. Prod evaluate-only, then a human tag, then `approval_check` and deploy
+7. Batch or serve, monitor, rollback, or kick off a **dev** retrain
 
-Stack (intended names are bundle **variables**, not literals in jobs):
+What you get (names are bundle **variables**, not hardcoded in jobs):
 
-- 2 × Unity Catalog catalogs (`ml_dev`, `ml_prod`) on the **same metastore**
-- 2 × DAB targets (`dev`, `prod`) — no `staging`
-- Lakeflow Jobs: train (dev only), `promotion_gate`, `promotion_cutover`, predict, monitor, feature refresh, cleanup
-- MLflow 3 experiment under `/Shared/mlops/binary_classifier`
+- Two Unity Catalog catalogs (`ml_dev`, `ml_prod`) on the **same metastore**
+- Two DAB targets (`dev`, `prod`). No `staging`.
+- Jobs named `[<target> <user>] adult-adult_income_clf-<job>` (see Results for the full list per target)
+- Online Feature Store sync is a runtime Lakeflow pipeline (not a DAB resource): intended name `…-features-pipeline`
+- An MLflow 3 experiment under `/Shared/mlops/binary_classifier`
 - Feature Store scoring (`fe.log_model` / `fe.score_batch`)
-- Model Serving endpoints (`adult-income-clf-dev` / `adult-income-clf-prod`) with **pinned** `entity_version`
-- Dual source: each step is `src/**/*.py` **and** `notebooks/**/*.ipynb`
+- Serving endpoints `adult-income-clf-dev` and `adult-income-clf-prod` with a **pinned** `entity_version`
+- Dual source: each step is `src/**/*.py` **and** a matching `notebooks/**/*.ipynb`
 
 NOTE:
 
-- Pick a CLI profile yourself (`databricks auth profiles`). Never let the CLI auto-pick. Replace `<PROFILE>` in every command.
-- Catalogs, schemas, tables, and model names come from **bundle variables / task env**, not operator job parameters.
-- Operator params on promotion jobs are only `source_model_version` and `promotion_reason`.
-- Do **not** set bundle `mode: development` — it prefixes UC model names and breaks registration.
+- Pick a CLI profile yourself (`databricks auth profiles`). Do not let the CLI auto-pick. Replace `<PROFILE>` in every command.
+- Catalogs, schemas, tables, and model names come from bundle variables and task env, not from operator job parameters.
+- Promotion jobs only take `source_model_version` and `promotion_reason`.
+- Do **not** set bundle `mode: development`. It prefixes UC model names and registration breaks.
 
-Below a few image examples of the outcome.
+A few screenshots from a real run:
 
 <p align="center">
 <img src = "docs/imgs/training-pipeline.PNG?raw=true" width="95%"/>
@@ -71,17 +74,17 @@ DataBricksMLOps/
 └── README.md
 ~~~
 
-The example is split so you can run train, promotion, predict, and monitor as separate jobs instead of one notebook.
+Train, promotion, predict, and monitor are separate jobs, so you can run each one on its own.
 
 </details>
 
 <details open>
 <summary> <b>Using the Adult Income Bundle</b></summary>
 
-NOTE:  By default, jobs use **serverless**. This workspace is serverless-only — do not attach classic `job_clusters` on deployable jobs.
+NOTE: Jobs use **serverless** by default. This workspace is serverless-only, so do not attach classic `job_clusters` on jobs you deploy.
 
-- Prerequisites: Databricks CLI >= 1.0, Python 3.10+, a Unity Catalog metastore with catalogs `ml_dev` and `ml_prod` (or change the bundle variables), experiment parent folder `/Shared/mlops/binary_classifier`.
-- See [`binary_classifier/README.md`](binary_classifier/README.md) for approval tags, aliases, tables, and cleanup kinds.
+- You need Databricks CLI 1.0 or newer, Python 3.10+, catalogs `ml_dev` and `ml_prod` (or change the bundle variables), and the experiment parent folder `/Shared/mlops/binary_classifier`.
+- Approval tags, aliases, tables, and cleanup kinds live in [`binary_classifier/README.md`](binary_classifier/README.md).
 
 - Clone this repo:
 
@@ -90,7 +93,7 @@ NOTE:  By default, jobs use **serverless**. This workspace is serverless-only �
     cd DataBricksMLOps
 ~~~
 
-- Create a virtualenv (optional) and install the example package (puts `src` on `PYTHONPATH`; no Unity Catalog writes):
+- Optional virtualenv, then install the package. This puts `src` on `PYTHONPATH` and does not write to Unity Catalog:
 
 ~~~
     cd binary_classifier
@@ -98,19 +101,19 @@ NOTE:  By default, jobs use **serverless**. This workspace is serverless-only �
     python -m pytest
 ~~~
 
-- If you change any `src/**/*.py` file, regenerate the matching notebooks:
+- After you edit any `src/**/*.py` file, regenerate the notebooks:
 
 ~~~
     python scripts/generate_notebooks.py
 ~~~
 
-- List CLI profiles and **choose one**. Pass `--profile <PROFILE>` on every command:
+- List CLI profiles and **choose one**. Pass `--profile <PROFILE>` every time:
 
 ~~~
     databricks auth profiles
 ~~~
 
-- Validate the bundle (needs CLI + profile, still no job runs):
+- Validate the bundle. You need the CLI and a profile. This still does not run jobs:
 
 ~~~
     databricks bundle validate --strict --target dev --profile <PROFILE>
@@ -124,13 +127,13 @@ NOTE:  By default, jobs use **serverless**. This workspace is serverless-only �
     databricks bundle run train --target dev --profile <PROFILE>
 ~~~
 
-Wait until the job finishes. Copy the Jobs **run id**. You need it later for production.
+Wait until it finishes. Copy the Jobs **run id**. You will need it for production.
 
 Train graph:
 
 `seed` → `data_checks` → `eda` → `features` → `train` → `evaluate` → then `compare` ∥ `xai` → then `promotion_ready` ∥ `smoke`
 
-Smoke does **not** wait on `promotion_ready`. After a **go**, `promotion_ready` sets `ml_dev` `@champion` and task values `ready=true` + `go_version`. After a **no-go**, the train job still succeeds, but `ready=false` and you must **not** promote.
+Smoke does **not** wait on `promotion_ready`. On a **go**, `promotion_ready` sets `ml_dev` `@champion` and task values `ready=true` plus `go_version`. On a **no-go** the train job still succeeds, but `ready=false` and you must **not** promote.
 
 - Optional jobs on the same **dev** target:
 
@@ -141,7 +144,7 @@ Smoke does **not** wait on `promotion_ready`. After a **go**, `promotion_ready` 
     databricks bundle run monitor --target dev --profile <PROFILE>
 ~~~
 
-- Confirm the train run is promotable (`promotion_ready` task values):
+- Check that the train run is promotable (`promotion_ready` task values):
 
 ~~~
     databricks jobs get-run <TRAIN_RUN_ID> --profile <PROFILE>
@@ -152,9 +155,9 @@ You need `ready=true` and `go_version=<UC version>`. Always pass:
 - `source_model_version=<go_version>`
 - `promotion_reason=<TRAIN_RUN_ID>` (must not be empty)
 
-`copy_register` still refuses unless that source version has tag `compare_result=go`. Local pin helper (no UC): `python scripts/ci_pins_from_train_run.py --json-file <get-run.json> --train-run-id <id>`.
+`copy_register` still refuses unless that source version has tag `compare_result=go`. Helper with no UC: `python scripts/ci_pins_from_train_run.py --json-file <get-run.json> --train-run-id <id>`.
 
-- Deploy **prod** code, refresh features, run the **gate** (not live yet):
+- Deploy **prod** code, refresh features, run the **gate**. The model is not live yet:
 
 ~~~
     databricks bundle deploy --target prod --profile <PROFILE>
@@ -164,19 +167,19 @@ You need `ready=true` and `go_version=<UC version>`. Always pass:
 
 The gate copies `models:/<source_model>/<go_version>` into the dest model, sets dest `@challenger`, then evaluates with `mode=prod_gate`. It does **not** set `@prod`, does not update serving, and does not write `Approved`.
 
-Do **not** repair a succeeded `copy_register` (that double-copies). Start a **new** gate run if you need to copy again.
+Do **not** repair a succeeded `copy_register`. That would copy twice. Start a **new** gate run if you need another copy.
 
-- **Human approval** after the gate succeeds: an identity in `approver_identities` that is **not** `job_run_as_sp` tags the dest `@challenger` version (pin-matched `source_model_version`) with `approval_check=Approved` and `approved_by=<you>`. The job never writes `Approved`.
+- **Human approval** after the gate succeeds: someone in `approver_identities` who is **not** `job_run_as_sp` tags the dest `@challenger` version (the one whose `source_model_version` matches the pin) with `approval_check=Approved` and `approved_by=<you>`. The job never writes `Approved`.
 
-- Go live with **cutover** (same pin as the gate). Dest version is **not** a job parameter:
+- Go live with **cutover** using the same pin as the gate. Dest version is **not** a job parameter:
 
 ~~~
     databricks bundle run promotion_cutover --target prod --profile <PROFILE> --params='source_model_version=<same_go_version>,promotion_reason=<same_TRAIN_RUN_ID>'
 ~~~
 
-Default `allow_canary` is `false`, so `deploy` usually finishes production in one step (`@champion` + `@prod` + serving 100%). During a canary, **predict still reads `@prod`** until `to_100`.
+`allow_canary` defaults to `false`, so `deploy` usually finishes in one step (`@champion` plus `@prod` plus serving at 100%). If you turn canary on, **predict still reads `@prod`** until `to_100`.
 
-- Manual cleanup (no schedule). Bundle jobs stay (`databricks bundle destroy` if you want those):
+- Manual cleanup (no schedule). Bundle jobs stay. Use `databricks bundle destroy` if you also want those gone:
 
 ~~~
     databricks bundle run cleanup --target dev --profile <PROFILE>
@@ -188,46 +191,73 @@ Default `allow_canary` is `false`, so `deploy` usually finishes production in on
 <details open>
 <summary> <b>Results</b></summary>
 
-The screenshots above are from a real **dev** workspace run of the Adult income train job.
+The screenshots above come from a real **dev** run of the Adult income train job.
 
-- **Jobs & Pipelines** — DAB-deployed jobs tagged `adult` / `binary_classifier`: train, feature-store, predict, monitor, cleanup.
-- **Job runs** — successive train / ops runs (success and fail visible in the histogram).
-- **Train DAG** — seed through evaluate, then Compare ∥ XAI, then `promotion_ready` ∥ smoke.
-- **MLflow experiment** — `[dev <user>] uc-adult-xgb` with run names `uci-adult-xgb-DDMMYY-HHMMSS`.
-- **Run artifacts** — estimator HTML, `feature_contract.json`, confusion / PR / ROC plots, registered model `ml_dev.adult_income.adult_income_clf`.
+- **Jobs & Pipelines names** (pattern `[<target> <short-user>] adult-adult_income_clf-<job-or-pipeline>`; examples use `issaiass`):
 
-Local tests cover dataset encoding, Compare (tags only), `copy_register` refusals, approval read-path, predict mode, cleanup kinds, and notebook parity. They do **not** replace a real train job on Databricks.
+  **`bundle deploy --target dev`**
+
+  | Resource | Jobs UI name |
+  | --- | --- |
+  | Job `train` | `[dev issaiass] adult-adult_income_clf-train` |
+  | Job `feature_refresh` | `[dev issaiass] adult-adult_income_clf-feature-store` |
+  | Job `batch` | `[dev issaiass] adult-adult_income_clf-predict` |
+  | Job `monitor` | `[dev issaiass] adult-adult_income_clf-monitor` |
+  | Job `cleanup` | `[dev issaiass] adult-adult_income_clf-cleanup` |
+  | Pipeline (runtime OFS sync, not in YAML) | Intended `[dev issaiass] adult-adult_income_clf-features-pipeline`. Databricks DatabaseSyncTable pipelines often stay `Synced table: ml_dev.adult_income.adult_features_online <id>` instead. |
+
+  Not on **dev:** `promotion_gate`, `promotion_cutover`.
+
+  **`bundle deploy --target prod`**
+
+  | Resource | Jobs UI name |
+  | --- | --- |
+  | Job `promotion_gate` | `[prod issaiass] adult-adult_income_clf-promotion-gate` |
+  | Job `promotion_cutover` | `[prod issaiass] adult-adult_income_clf-promotion-cutover` |
+  | Job `feature_refresh` | `[prod issaiass] adult-adult_income_clf-feature-store` |
+  | Job `batch` | `[prod issaiass] adult-adult_income_clf-predict` |
+  | Job `monitor` | `[prod issaiass] adult-adult_income_clf-monitor` |
+  | Job `cleanup` | `[prod issaiass] adult-adult_income_clf-cleanup` |
+  | Pipeline (runtime OFS sync after prod `features`) | Intended `[prod issaiass] adult-adult_income_clf-features-pipeline`. Databricks may keep `Synced table: ml_prod.adult_income.adult_features_online <id>`. |
+
+  Not on **prod:** `train`. Short user name is `${workspace.current_user.short_name}` (override `job_user_shortname`).
+- **Job runs**: several train and ops runs. The histogram shows successes and a fail.
+- **Train DAG**: seed through evaluate, then Compare next to XAI, then `promotion_ready` next to smoke
+- **MLflow experiment**: `[dev <user>] uc-adult-xgb` with run names like `uci-adult-xgb-DDMMYY-HHMMSS`
+- **Run artifacts**: estimator HTML, `feature_contract.json`, confusion / PR / ROC plots, registered model `ml_dev.adult_income.adult_income_clf`
+
+Local tests cover encoding, Compare (tags only), `copy_register` refusals, the approval read-path, predict mode, cleanup kinds, and notebook parity. They do **not** replace a real train job on Databricks.
 
 </details>
 
 <details open>
 <summary> <b>GitHub Actions</b></summary>
 
-Workflows live in `.github/workflows/`. Merge does **not** start train. Never prod-deploy from fork PRs. Never pass an empty `source_model_version`.
+Workflows live in `.github/workflows/`. A merge does **not** start train. Do not prod-deploy from fork PRs. Do not pass an empty `source_model_version`.
 
 | Workflow | When | What |
 | --- | --- | --- |
-| `binary-classifier-ci.yml` | pull request + push | `pytest`; then `bundle validate --strict` for `dev` and `prod`. Fork PRs: tests only. |
+| `binary-classifier-ci.yml` | pull request + push | `pytest`, then `bundle validate --strict` for `dev` and `prod`. Fork PRs: tests only. |
 | `binary-classifier-cd.yml` | push to `main`/`master` | `bundle deploy --target dev` (code only). |
 | `binary-classifier-cd.yml` | **Actions → Run workflow** | `deploy_dev` / `deploy_prod` / `promotion_gate` / `promotion_cutover`. |
 
-Manual CD for production: run `promotion_gate` with the **dev train run id**. CI reads `ready` / `go_version` and refuses an empty pin. After you tag `Approved`, run `promotion_cutover` with the **same** train run id.
+For production CD, run `promotion_gate` with the **dev train run id**. CI reads `ready` / `go_version` and refuses an empty pin. After you tag `Approved`, run `promotion_cutover` with the **same** train run id.
 
-Preferred auth is **OIDC** (GitHub environments `dev` / `prod`, repository variables `DATABRICKS_CLIENT_ID`, `DATABRICKS_HOST_DEV`, `DATABRICKS_HOST_PROD`). Do not store `DATABRICKS_TOKEN` in GitHub for these workflows.
+Prefer **OIDC** (GitHub environments `dev` / `prod`, repo variables `DATABRICKS_CLIENT_ID`, `DATABRICKS_HOST_DEV`, `DATABRICKS_HOST_PROD`). Do not store `DATABRICKS_TOKEN` in GitHub for these workflows.
 
 </details>
 
 <details open>
 <summary> <b>Issues</b></summary>
 
-- Until distinct service principals exist, `run_as` in **dev** job YAML stays commented; the **prod** target still expects `job_run_as_sp`. Train and promotion Run-as SPs **must** be different once enabled.
-- Adult Census has **no event time**. Training / evaluate use the official train vs test files, not a time-based holdout. If you set `event_time_col` on another dataset, you must use a time-based holdout (or point-in-time Feature Store join).
-- Alias changes alone do **not** move Model Serving. `deploy` / smoke must pin `entity_version` and wait until the endpoint is `READY`.
-- `CREATE MODEL VERSION` is not enough to move aliases — owner or `MANAGE` on that registered model is required. The promotion SP must **not** be dest model owner (residual risk: `MANAGE` can still move `@prod`).
+- Until you have two distinct service principals, `run_as` in **dev** job YAML stays commented. The **prod** target still expects `job_run_as_sp`. Train and promotion Run-as SPs **must** be different once you turn them on.
+- Adult Census has **no event time**. Train and evaluate use the official train vs test files, not a time-based holdout. If you set `event_time_col` on another dataset, use a time-based holdout (or a point-in-time Feature Store join).
+- Changing an alias does **not** move Model Serving. `deploy` and smoke must pin `entity_version` and wait until the endpoint is `READY`.
+- `CREATE MODEL VERSION` is not enough to move aliases. You need owner or `MANAGE` on that registered model. The promotion SP must **not** be dest model owner. Residual risk: `MANAGE` can still move `@prod`.
 - Re-running `promotion_gate` with the same pin **creates a new dest version** and moves dest `@challenger`. Do not repair a **succeeded** `copy_register`.
-- Compare **no-go** does not fail the train job. CI must treat `ready=false` as not promotable, not as infra failure.
-- Cross-metastore copy is out of scope: `copy_register` must fail closed (no export/import / Delta Sharing / pickle bridge).
-- Do not set `deployment_job_id` on the dest registered model (copy/register would auto-run in a loop).
+- Compare **no-go** does not fail the train job. Treat `ready=false` as not promotable, not as an infra failure.
+- Cross-metastore copy is out of scope. `copy_register` must fail closed. No export/import, Sharing, or pickle bridge.
+- Do not set `deployment_job_id` on the dest registered model. Copy/register would auto-run in a loop.
 
 </details>
 
@@ -241,7 +271,7 @@ Planning to add to this project:
 - :heavy_check_mark: Feature Store log / `score_batch` contract
 - :x: Multiclass and regressor example folders (same promotion graph)
 - :x: Default serving canary (`allow_canary`) with `metrics_gate` → `to_100`
-- :x: Distinct `train_run_as_sp` / `job_run_as_sp` + OIDC federation documented per workspace
+- :x: Distinct `train_run_as_sp` / `job_run_as_sp` plus OIDC federation documented per workspace
 - :x: Spark Declarative Pipelines for feature ETL only (not training)
 
 </details>
@@ -249,9 +279,9 @@ Planning to add to this project:
 <details open>
 <summary> <b>Contributing</b></summary>
 
-Your contributions are always welcome! Please feel free to fork and modify the content but remember to finally do a pull request.
+Your contributions are always welcome! Fork, change what you need, and send a pull request.
 
-Keep MUST constraints from the workspace MLOps protocol: no train on prod promotion jobs, no `@prod` from train, dual source until you choose one IaC style, and CI pins `go_version` from the **train run** (not live `@champion`).
+Please keep the protocol: no train on prod promotion jobs, no `@prod` from train, dual source until you pick one IaC style, and CI pins `go_version` from the **train run** (not live `@champion`).
 
 </details>
 

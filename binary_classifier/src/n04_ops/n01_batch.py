@@ -85,11 +85,11 @@ def score_via_batch(featured, settings: Settings, *, model_name: str, alias: str
 
 
 def score_via_serving(spark, featured, settings: Settings, *, version: str):
-    pdf = featured.select(settings.id_col, *MODEL_FEATURE_COLS).toPandas()
-    ids = [str(v) for v in pdf[settings.id_col].tolist()]
-    records = pdf[list(MODEL_FEATURE_COLS)].to_dict(orient="records")
+    pdf = featured.select(settings.id_col).toPandas()
+    ids = [int(v) for v in pdf[settings.id_col].tolist()]
+    records = [{settings.id_col: rid} for rid in ids]
     scores = query_endpoint_scores(settings.endpoint_name, records)
-    rows = list(zip(ids, [float(s) for s in scores]))
+    rows = [(str(i), float(s)) for i, s in zip(ids, scores)]
     scored = spark.createDataFrame(rows, schema=f"{settings.id_col} string, score double")
     print(f"scored {len(rows)} rows via serving endpoint {settings.endpoint_name} v{version}")
     return scored, f"endpoints:/{settings.endpoint_name}"
