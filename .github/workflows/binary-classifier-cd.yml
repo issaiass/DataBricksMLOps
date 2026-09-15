@@ -1,0 +1,192 @@
+# Merge = deploy code to the dev target (no train).
+# Release = workflow_dispatch: deploy prod, then promotion_gate only if the
+# train run's promotion_ready.ready=true (pin = that run's go_version).
+# After a human tags Approved on dest @challenger, dispatch promotion_cutover
+# with the same train_run_id. Never prod-deploy from forks. Never empty pins.
+name: binary-classifier-cd
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "binary_classifier/**"
+      - ".github/workflows/binary-classifier-cd.yml"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: CD action
+        type: choice
+        required: true
+        default: deploy_dev
+        options:
+          - deploy_dev
+          - deploy_prod
+          - promotion_gate
+          - promotion_cutover
+      train_run_id:
+        description: Dev train Jobs run id (required for promotion_gate and promotion_cutover)
+        required: false
+        default: ""
+
+concurrency:
+  group: binary-classifier-cd-${{ github.event.inputs.action || 'deploy_dev' }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+defaults:
+  run:
+    working-directory: binary_classifier
+
+jobs:
+  deploy_dev:
+    name: Deploy bundle (dev target)
+    runs-on: ubuntu-latest
+    environment: dev
+    if: ${{ github.event.repository.fork == false && ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy_dev')) }}
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST_DEV }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pytest
+      - run: python -m pytest
+      - uses: databricks/setup-cli@main
+      - name: Validate and deploy dev (code only; does not run train)
+        run: |
+          if [ -z "$DATABRICKS_HOST" ] || [ -z "$DATABRICKS_CLIENT_ID" ]; then
+            echo "Set repository variables DATABRICKS_HOST_DEV and DATABRICKS_CLIENT_ID, and GitHub environment 'dev'."
+            exit 1
+          fi
+          databricks bundle validate --strict --target dev
+          databricks bundle deploy --target dev --auto-approve
+
+  deploy_prod:
+    name: Deploy bundle (prod target)
+    runs-on: ubuntu-latest
+    environment: prod
+    if: ${{ github.event.repository.fork == false && github.event_name == 'workflow_dispatch' && inputs.action == 'deploy_prod' }}
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST_PROD || vars.DATABRICKS_HOST_DEV }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: Validate and deploy prod (never includes train/EDA/XAI/Compare)
+        run: |
+          if [ -z "$DATABRICKS_HOST" ] || [ -z "$DATABRICKS_CLIENT_ID" ]; then
+            echo "Set DATABRICKS_HOST_PROD (or HOST_DEV) and DATABRICKS_CLIENT_ID. Use GitHub environment 'prod'."
+            exit 1
+          fi
+          databricks bundle validate --strict --target prod
+          databricks bundle deploy --target prod --auto-approve
+
+  promotion_gate:
+    name: Deploy prod + promotion_gate (pinned go_version)
+    runs-on: ubuntu-latest
+    environment: prod
+    if: ${{ github.event.repository.fork == false && github.event_name == 'workflow_dispatch' && inputs.action == 'promotion_gate' }}
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      TRAIN_RUN_ID: ${{ inputs.train_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: databricks/setup-cli@main
+      - name: Refuse empty train_run_id
+        run: |
+          if [ -z "$TRAIN_RUN_ID" ]; then
+            echo "CI MUST never start promotion_gate without a train run id (empty pin / empty promotion_reason)."
+            exit 1
+          fi
+      - name: Read promotion_ready pins from the train run (dev workspace)
+        id: pins
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST_DEV }}
+        run: |
+          databricks jobs get-run --run-id "$TRAIN_RUN_ID" --output json > /tmp/train-run.json
+          python scripts/ci_pins_from_train_run.py \
+            --json-file /tmp/train-run.json \
+            --train-run-id "$TRAIN_RUN_ID" \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Skip gate when train is not promotable
+        if: ${{ steps.pins.outputs.promotable != 'true' }}
+        run: |
+          echo "ready=${{ steps.pins.outputs.ready }} — successful train that is not promotable. Not starting promotion_gate."
+      - name: Deploy prod and run promotion_gate
+        if: ${{ steps.pins.outputs.promotable == 'true' }}
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST_PROD || vars.DATABRICKS_HOST_DEV }}
+          SOURCE_MODEL_VERSION: ${{ steps.pins.outputs.source_model_version }}
+          PROMOTION_REASON: ${{ steps.pins.outputs.promotion_reason }}
+        run: |
+          if [ -z "$SOURCE_MODEL_VERSION" ] || [ -z "$PROMOTION_REASON" ]; then
+            echo "Refuse empty source_model_version or promotion_reason."
+            exit 1
+          fi
+          databricks bundle validate --strict --target prod
+          databricks bundle deploy --target prod --auto-approve
+          databricks bundle run promotion_gate --target prod \
+            --params="source_model_version=${SOURCE_MODEL_VERSION},promotion_reason=${PROMOTION_REASON}"
+
+  promotion_cutover:
+    name: Deploy prod + promotion_cutover (same pin; after Approved)
+    runs-on: ubuntu-latest
+    environment: prod
+    if: ${{ github.event.repository.fork == false && github.event_name == 'workflow_dispatch' && inputs.action == 'promotion_cutover' }}
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      TRAIN_RUN_ID: ${{ inputs.train_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: databricks/setup-cli@main
+      - name: Refuse empty train_run_id
+        run: |
+          if [ -z "$TRAIN_RUN_ID" ]; then
+            echo "CI MUST never start promotion_cutover without the same train run id used at the gate."
+            exit 1
+          fi
+      - name: Read the same pins as the gate
+        id: pins
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST_DEV }}
+        run: |
+          databricks jobs get-run --run-id "$TRAIN_RUN_ID" --output json > /tmp/train-run.json
+          python scripts/ci_pins_from_train_run.py \
+            --json-file /tmp/train-run.json \
+            --train-run-id "$TRAIN_RUN_ID" \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Require promotable pin (do not cut over a no-go)
+        if: ${{ steps.pins.outputs.promotable != 'true' }}
+        run: |
+          echo "ready!=true; refusing promotion_cutover."
+          exit 1
+      - name: Deploy prod and run promotion_cutover
+        if: ${{ steps.pins.outputs.promotable == 'true' }}
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST_PROD || vars.DATABRICKS_HOST_DEV }}
+          SOURCE_MODEL_VERSION: ${{ steps.pins.outputs.source_model_version }}
+          PROMOTION_REASON: ${{ steps.pins.outputs.promotion_reason }}
+        run: |
+          if [ -z "$SOURCE_MODEL_VERSION" ] || [ -z "$PROMOTION_REASON" ]; then
+            echo "Refuse empty source_model_version or promotion_reason."
+            exit 1
+          fi
+          databricks bundle validate --strict --target prod
+          databricks bundle deploy --target prod --auto-approve
+          databricks bundle run promotion_cutover --target prod \
+            --params="source_model_version=${SOURCE_MODEL_VERSION},promotion_reason=${PROMOTION_REASON}"

@@ -1,0 +1,51 @@
+# PR / push: unit tests + optional OIDC bundle validate.
+# Never deploy. Never start train. Never promote. Fork PRs: tests only (no Databricks).
+name: binary-classifier-ci
+
+on:
+  pull_request:
+    paths:
+      - "binary_classifier/**"
+      - ".github/workflows/binary-classifier-ci.yml"
+      - ".github/workflows/binary-classifier-cd.yml"
+  push:
+    paths:
+      - "binary_classifier/**"
+      - ".github/workflows/binary-classifier-ci.yml"
+      - ".github/workflows/binary-classifier-cd.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+defaults:
+  run:
+    working-directory: binary_classifier
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pytest
+      - run: python -m pytest
+
+  validate:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: dev
+    if: ${{ github.event.pull_request.head.repo.fork != true && vars.DATABRICKS_HOST_DEV != '' && vars.DATABRICKS_CLIENT_ID != '' }}
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST_DEV }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: Validate bundles (strict)
+        run: |
+          databricks bundle validate --strict --target dev
+          databricks bundle validate --strict --target prod

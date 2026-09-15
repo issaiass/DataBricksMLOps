@@ -1,0 +1,296 @@
+---
+alwaysApply: true
+---
+# Databricks MLOps (implement this way)
+
+Classic ML control plane only (tabular / sklearn / XGBoost / LightGBM and similar). GenAI/RAG/agents: last section, and only if the user asks.
+
+**How to read this file.** **MUST** = do not skip, soften, or “interpret away.” **SHOULD** = default unless the user names a different choice. **User request** may change SHOULD and file layout. **MUST** changes only if the user explicitly names that constraint. **Skills/docs** supply CLI/SDK/API shapes only. This file overrides skill defaults that set `@prod` in training, auto-link `deployment_job_id`, add `staging`, or use Workspace Model Registry.
+
+Load: `databricks-core` → `databricks-dabs` + `databricks-jobs` + `databricks-ml-training` / `databricks-model-serving`. GenAI eval only: `databricks-mlflow-evaluation` (+ vector-search / agent skills when those resources appear).
+
+**IaC = DABs only.** Empty repo: `databricks bundle init mlops-stacks`, then **customize** — delete or stop deploying: `staging` / `ml_staging` targets and catalogs; any **Train / EDA / XAI / Compare / `promotion_ready` / smoke** job on the `prod` target; `deployment_job_id` on the dest model; WMR / stage / webhook resources; stacks graphs that set `@prod` in train. Add CI/manual `copy_register` promotion (this file). Do not keep stacks graphs that contradict MUST. Docs (do not invent APIs): [mlops-workflow](https://docs.databricks.com/aws/en/machine-learning/mlops/mlops-workflow), [deployment-patterns](https://docs.databricks.com/aws/en/machine-learning/mlops/deployment-patterns), [mlops-stacks](https://docs.databricks.com/aws/en/machine-learning/mlops-stacks), [ci-cd-for-ml](https://docs.databricks.com/aws/en/machine-learning/mlops/ci-cd-for-ml), [bundles](https://docs.databricks.com/dev-tools/bundles/), [model-lifecycle](https://docs.databricks.com/aws/en/machine-learning/manage-model-lifecycle/), [mlflow-3](https://docs.databricks.com/aws/en/mlflow/mlflow-3-install), [mlflow3-ml-workflow](https://docs.databricks.com/aws/en/mlflow/mlflow3-ml-workflow), [deployment-job](https://docs.databricks.com/aws/en/mlflow/deployment-job), [models](https://docs.databricks.com/aws/en/mlflow/models), [log-model-dependencies](https://docs.databricks.com/aws/en/mlflow/log-model-dependencies), [autologging](https://docs.databricks.com/aws/en/mlflow/databricks-autologging). `aws/en` is a doc locale — use the user’s cloud for product URLs. Feature Store / Serving / GenAI / WMR-migration docs only when those topics appear.
+
+**Loop:** reproducible **train in `dev`** → register **winner** in UC → **dev** evaluate (absolute) → **Compare** (XAI in parallel, not a gate) → **`promotion_ready`** (`ready=true` + `ml_dev` `@champion` on go) → promote **artifact** (`copy_register` on **prod**, pinned `go_version`) → **prod** evaluate-only (absolute) → **human approval** (tag on dest version) → **`approval*` + deploy** (+ optional serving canary) → **batch/serve** → **monitor** → **rollback** or enqueue **dev** retrain. Never: pickle from laptop into prod; train on the promotion job; Genie as control plane; SDP as “training.”
+
+## MUST
+
+1. **Two targets, two catalogs.** DAB targets `dev` and `prod` only. One UC catalog per env (intended names `ml_dev`, `ml_prod` — always via **bundle variables**, never literals in jobs/notebooks). **Both targets MUST define `dev_catalog` and `prod_catalog`** so train/EDA/XAI/Compare can abort when the active catalog equals `prod_catalog`. No `staging`, no `ml_staging`, no shared catalog. Source model = `ml_dev`; dest = `ml_prod`. Copy/register requires the **same UC metastore**. **Different metastores:** `copy_register` MUST fail closed and MUST NOT invent a bridge (export/import, Sharing, pickle). Cross-metastore is out of scope unless the user explicitly names a design. Jobs, experiments, and serving are **workspace-scoped** (two workspaces ⇒ two deploys; only the UC model copy crosses). Git holds all sources. **`dev` target jobs:** train (EDA/XAI/Compare/smokes/`promotion_ready`) + batch `@dev` + serving `@dev` + monitor (+ features). **`prod` target jobs:** `promotion_gate` + `promotion_cutover` (see MUST 4) + batch `@prod` + serving `@prod` + monitor (+ features). **Do not** deploy or run promotion/`copy_register`/cutover on the `dev` target. **Sync (concrete):** `prod` `sync.include` only evaluate, copy_register, approval (read-only), deploy, rollback, canary (optional), batch, monitor, shared `src` helpers those steps import. `dev` `sync.include` train/EDA/XAI/Compare/`promotion_ready`/smoke + evaluate/batch/monitor + shared `src`. Never include train/EDA/XAI/Compare/`promotion_ready`/smoke in the prod sync. Create catalogs/schemas/experiment **parent folders**/volumes as bundle resources (or document a one-time admin step); do not assume they exist.
+
+2. **Parameterize everything env-specific** via bundle variables: catalogs, schemas, tables (features, labels, predictions, inference logs, EDA/XAI, monitor status), model names (base, source, dest), experiment paths (**dev and prod**), endpoints, job names, **both** notebook and Python paths per step, compute, schedules, **eval/compare thresholds** (`compare_metric`, `compare_higher_is_better`, `compare_margin`, `min_eval_rows`, `label_window`, optional `event_time_col`), serving (`canary_percent`, `canary_warmup_s`, `allow_canary`), `allow_champion_fallback` (default **`false`**, baked in task env — not a job param), approver identities/groups, secret **scope names**, **`train_run_as_sp` and `job_run_as_sp` (distinct principals)**, `ci_trigger_sp`. Alias names `dev` / `challenger` / `champion` / `prod` are the **protocol** (literals). Catalogs, schemas, tables, and model names are variables — never hardcode those. Examples in this file are illustrative.
+
+3. **Train only in `dev`.** Never run Train/EDA/XAI/Compare on a prod promotion job or as `prod` target **ML** jobs. Prod **feature/ETL** (SDP or a Features job) is allowed so batch has tables — it is not training. Prod promotion **copy/registers** the already-trained UC model and **evaluate-only**. Do not train in the Cursor process or drop a pickle into prod. **Dest registered-model versions that can become `@prod` are created only by `copy_register`.** A separate prod offline-train job exists only if the user explicitly asks — it MUST NOT register into the dest serving model, MUST NOT set `@prod`/`@champion`, and MUST NOT update serving.
+
+4. **Promotion graph (logical):** `copy_register` → evaluate-only → human `Approved` on **that dest version** → `approval*` (`max_retries: 0`) → `deploy` → optional serving canary (`canary_*` → `metrics_gate` → `to_100`). **`rollback` is failure/manual**, not a success-path `OR`. No Train, Compare, EDA, or XAI on these jobs. Do **not** set `deployment_job_id` on the dest model (copy/register **creates** the dest version ⇒ auto-run loops). Start `promotion_gate` with CI/`bundle run` only after `promotion_ready` `ready=true`, passing that train run’s `go_version` as `source_model_version` plus non-empty `promotion_reason` (train run id). **CI MUST never pass an empty pin.** `allow_champion_fallback=true` (bundle/task env only) + empty `source_model_version` is **Jobs UI fallback** to `models:/…@champion` (still `compare_result=go` + `promotion_reason`). Default `allow_champion_fallback=false`: empty pin ⇒ refuse.
+
+   **Default wiring — two prod jobs** (same `run_as: ${var.job_run_as_sp}`, each `max_concurrent_runs: 1`). A notebook that only **reads** `Approved` MUST NOT be the next success-path task after evaluate **in the same run** (the dest version is new; the tag cannot exist yet; the task will fail closed immediately). Do **not** invent a long poll-sleep in that notebook unless the user explicitly asks.
+   - **`promotion_gate`:** `copy_register` → evaluate `mode=prod_gate`. No `approval*`, no `deploy`, no serving mutation.
+   - **Human:** after gate success, an identity in `${var.approver_identities}` that **is not** `job_run_as_sp` writes UC tag key = `approval*` task key (e.g. `approval_check`), value `Approved`, on the **dest version** from that gate (not on `@prod`). Approvers do not `run_as` the job.
+   - **`promotion_cutover`:** `approval*` → `deploy` → optional canary. Operator params still only `source_model_version` + `promotion_reason` (same pin as the gate). **Dest version is not a job param.** Resolve dest version as dest `@challenger` **iff** its `source_model_version` tag equals this run’s pin; else fail closed. Then `approval*` **reads** `Approved` on that version (never writes it).
+   - **Exception (one job):** only if a Databricks **platform** approval task **pauses** the same run until a human acts. Then evaluate / `approval*` / `deploy` / canary / `rollback` in that run read **this run’s** task value `model_version` (MUST 8).
+
+5. **Registry.** `mlflow.set_registry_uri("databricks-uc")` only. No WMR, no `databricks://scope:prefix` registry URI, no stages/webhooks. MLflow 3: `log_model(name=...)`. Register **winner only**; Optuna trials = child runs. Pin pip; if the image logged `mlflow-skinny`, pin full `mlflow==<version>`. Log training-set identity (UC table + version / time-travel / MLflow dataset) and the **feature column contract** (names/types or signature). Log model **signature** (+ input example when the flavor allows). Train **on Databricks**, not in Cursor (unless the user asks).
+
+6. **Jobs vs SDP.** Lakeflow Jobs = train/eval/deploy/batch/monitor. SDP = feature/ETL **only**. One writer per feature table (SDP **xor** a Features task). If `fe.log_model(training_set=...)`, batch/serve with `fe.score_batch`, not `spark_udf`. If `event_time_col` is set, training/evaluate MUST use a **time-based** holdout (or point-in-time Feature Store join), not a random split that leaks future rows. Batch MUST score with the **same contract** (same keys/columns / `fe.score_batch` lineage).
+
+7. **Identities.** Train and prod **Run as** = **distinct** service principals (`train_run_as_sp` ≠ `job_run_as_sp`), never a human. Trigger/repair ≠ `run_as`. CI: SP or OIDC, never user PATs. Promotion jobs **and** train: `max_concurrent_runs: 1`. Train/EDA/XAI/Compare **fail** if catalog equals the prod catalog variable. `mode=prod_gate` evaluate MUST NOT set any alias. Grant each SP **READ** on the secret scopes it uses (scope **names** in git, not values).
+
+8. **Promote only a go artifact.** CI MUST copy `models:/{source_model_name}/{go_version}` from the **train run** (`ready=true`). **Never** copy `@challenger` or `@dev`. **CI `go_version` contract:** read Jobs task values on the finished train run from task_key `promotion_ready`: `ready`, `go_version` (CLI/API: `databricks jobs get-run <train_run_id>` — use the run’s task-value fields; do not invent a widget). Missing `ready` or `ready!=true` ⇒ do not start prod. Treat `ready=false` as a successful train that is **not** promotable (not an infra failure). Backup: same keys as UC tags on that `ml_dev` version (`ready`, `go_version`, `train_run_id`) set by `promotion_ready` on go — CI still MUST prefer the **run** that produced them, not live `@champion`. `copy_register` **refuses** unless that source version has `compare_result=go`. Pinning **requires** non-empty `promotion_reason` (does **not** waive a no-go). Bake `source_model_name`, dest `model_name`, evaluate `mode=prod_gate`, and `allow_champion_fallback` from bundle vars into **task env/`spark_conf`**. Operator params are only `source_model_version` and `promotion_reason`. Do **not** add `source_alias` or dest `model_version` as job params. **Same run as `copy_register`:** evaluate (and platform-approval one-job deploy/canary/`rollback`) read **this run’s** task value `model_version` only. **Cutover job:** dest version via `@challenger` + matching `source_model_version` tag (MUST 4), not a job param. Re-running `promotion_gate` with the same pin **creates a new dest version** and moves dest `@challenger` — allowed; do **not** repair a **succeeded** `copy_register` (that double-copies).
+
+9. **Dev quality is absolute then relative.** Evaluate uses a **held-out** slice (not HPO/train-fit rows), absolute thresholds (bundle vars), **fail closed** (missing/empty metrics or labels, or row count `< min_eval_rows` ⇒ fail). **Compare `depends_on` evaluate and runs only after evaluate succeeds** (so `go` / `no-go` / `first_version` exist on a candidate that already passed absolute bars). If evaluate fails, Compare/`promotion_ready` do not run — CI treats that as not promotable. Compare **only writes tags** and MUST NOT set `@champion`. If `@champion` is missing: skip the **relative metric fight**, tag `compare_result=go` + `first_version=true`. If a champion exists: compare **only** `${var.compare_metric}` with direction `${var.compare_higher_is_better}` and margin `${var.compare_margin}`; else tag `no-go`. **No-go does not crash Compare or the train job.** **XAI is not on the `promotion_ready` path** (dedicated XAI depends on evaluate; Compare does **not** wait on XAI). If EDA/XAI are **inlined** in train, run **Compare + `promotion_ready` before XAI**, or isolate XAI so an exception **cannot** fail those tasks. **`promotion_ready` always runs after a successful Compare:** on `go` it sets `ml_dev` `@champion`, task values and UC tags `ready=true`, `go_version=<that UC version>`, `train_run_id`; on `no-go` it does **not** move `@champion`, sets `ready=false`, and **succeeds**. Smokes MUST **not** depend on `promotion_ready`. `@dev`/`@challenger` may remain on the loser; standing **dev** batch/serve follow `@dev` (dev only — not promotion).
+
+10. **Prod evaluate is a quality gate, not Compare.** Same **feature contract** as training (signature / column list — mismatch ⇒ fail); **prod** labels (latest labeled **window** `${var.label_window}` — delayed labels are expected); absolute bars; fail closed on empty/insufficient labels (`< min_eval_rows`). Training may use an `ml_dev` snapshot or sample of the **same schema** — log that. Shift is why this gate exists; failure ⇒ **do not** start cutover / **do not deploy**. Do **not** have the promotion SP enqueue the train job. CI/monitor enqueue **dev** retrain. If `${var.monitor_status_table}` is configured, evaluate MUST `SELECT` the latest row and **block** when `gate_ok` is not `true`.
+
+11. **Aliases vs serving pins.** Batch reads UC aliases (`@dev` / `@prod`). Model Serving **pins `entity_version`** (+ `traffic_config`). Alias change alone does **not** move an endpoint. `deploy` / `to_100` / `rollback` / **dev smoke** (if a dev endpoint exists) MUST update serving config with the pinned version and **wait until the endpoint is `READY`** before smoke or `metrics_gate`. During canary: split by pinned dest version (`${var.canary_percent}`); **do not** flip `@prod`; **prod batch keeps reading `@prod` (the previous version) until `to_100`.** **No previous `@prod` (first promotion):** skip canary even if `allow_canary`; `deploy` sets `@prod` + serving 100% after approval. `deploy` MUST persist `previous_prod_version` as a **task value and a UC tag on the new dest version** (not on `@prod` during canary). Rollback reads that tag / (same-run) task value. **`rollback` wires to `deploy` / `canary_*` / `metrics_gate` failure only** (`run_if` on those keys) — **not** on failed `copy_register` or evaluate (no new serving pin / do not revert a healthy `@prod`). After cutover (or `deploy` if canary off / first promotion), `ml_prod` `@champion` and `@prod` MUST match. Rollback restores **both** aliases **and** serving to that saved previous version (no-op aliases on first deploy if there is nothing to restore — revert serving to the last good pin). Never batch/serve dest `@challenger`. Do not schedule prod batch until `@prod` exists (or skip with a clear no-op).
+
+12. **EDA/XAI: git + execute once + `dev` only.** Dedicated notebook **and** `.py`, plus a copy on train notebook/`train.py`. Dedicated `eda`/`xai` tasks ⇒ `run_inlined_eda_xai=false`; single train task ⇒ `true`, but **Compare/`promotion_ready` still run before inlined XAI** (or XAI errors are swallowed after logging). Do not run full SHAP/EDA on prod tables on promotion jobs. Approvers **read** `dev` artifacts (`eda_table` / `xai_table`). Minimize PII (sample, hash/drop ids). Unpartitioned `overwrite` is why train concurrency is 1.
+
+13. **Dual source until the user chooses IaC style.** Every executable step = Jupyter `.ipynb` **and** matching `.py` (parity). YAML **wires exactly one** task type per task (default `notebook_task` with a real `notebook_path`); comment the other; do not delete the unused tree. `approval*` is a **gate**: platform pause-approval if that exception in MUST 4 applies; else cutover-job notebook/Python that **only reads** the UC tag and exits non-zero — it MUST NOT write `Approved`. Evaluate pair takes `mode=dev|prod_gate` so prod cannot Compare or set aliases. **Local tests** (no UC writes, no real credentials) MUST cover: `copy_register` refuse (no `go` / empty pin when fallback false); Compare tag-only (no alias); approval **read-path** reject missing tag / reject Run-as SP as “approver.” Tests do not replace Databricks train.
+
+14. **Secrets and params.** Inject `${secrets/<scope>/<key>}` or job **environment** from a scope. Never secrets in git, widgets, job params, MLflow tags, or logs. Widgets are untrusted: fill catalog/schema/model/`mode` from **task env/bundle substitution**, not from operator job parameters. Dest `model_version` is never an overridable job param (MUST 4 / 8).
+
+15. **Security residual risk (honest).** **Aliases require owner or `MANAGE` on that registered model** — `CREATE MODEL VERSION` + `EXECUTE` are not enough. `MANAGE` typically includes tagging. IAM will **not** stop the Run as SP from moving `@prod` if it can run deploy code. Required: SP is **not** dest model **owner**; `approval*` cannot be skipped and has **no retries**; `Approved` rejected unless the principal is in `${var.approver_identities}` and **is not** the Run as SP; `CAN_MANAGE_RUN` on **both** prod promotion jobs limited to CI SP + tiny break-glass; promotion code only from **bundle sync**; fail closed. Prod endpoints **authenticated** (OAuth/SP or equivalent — not anonymous; no long-lived user PAT in the endpoint config). No `CAN_QUERY` for `account users`; no `ALL PRIVILEGES`; inference tables least-privilege `SELECT`.
+
+16. **Fail closed (promotion / serving).** On **prod** jobs: missing metrics, labels, `compare_result=go`, dest version (task value or `@challenger`+pin match), empty eval, failed monitor gate (if configured), failed canary metrics, endpoint never `READY` ⇒ fail/rollback as specified; do not set `@prod` or leave canary traffic on the new version. A **dev** Compare **no-go** is not a fail-closed train crash.
+
+## SHOULD
+
+- Prefer serverless jobs; classic only if the user requires it.
+- CI: OIDC rather than a long-lived SP secret; never prod deploy from fork PRs. Merge = `bundle deploy --target dev` (**code**); do not auto-run train on every merge unless the user wants that. Release = `bundle deploy --target prod` then `bundle run` **`promotion_gate`** only if train `ready=true`, then after `Approved`, `bundle run` **`promotion_cutover`** with the **same** `source_model_version` and `promotion_reason`. Monitor must **not** treat Compare no-go as a failed train (no retrain storm).
+- Pin DBR/ML runtime; document `env_manager` (`local` only if the cluster matches logged requirements). Pin a train seed when the library allows it.
+- Partition EDA/XAI tables by `run_id` if history is needed.
+- Monitor alerts enqueue **dev** train with cooldown and “skip if running”; never enqueue prod train.
+- `python_wheel_task` only later if the user asks — not a third source tree now.
+- Online features (Feature Store / Lakebase): declare in the bundle when used.
+
+## Aliases and tags (do not reverse)
+
+| Alias | Catalog | Meaning | Who sets it |
+|---|---|---|---|
+| `@dev` | `ml_dev` only | Latest candidate for **dev** smoke/batch/serving (may lose Compare) | Train, with `@challenger`, **before** Compare |
+| `@challenger` | that env’s catalog | New candidate | Dev train; prod `copy_register` |
+| `@champion` | `ml_dev` | Last **dev go** (absolute evaluate + Compare or first version). Compare baseline. **Not** the CI copy source (CI pins `go_version`) | **`promotion_ready` only** (on `compare_result=go`) |
+| `@champion` | `ml_prod` | Approved dest version | `deploy` after `approval*` (even if canary `<100%`) |
+| `@prod` | `ml_prod` | Prod **batch** + 100% serving pointer | `deploy` if canary off; else `to_100` |
+
+Never set `@prod` or `ml_prod` `@champion` in train, `copy_register`, or `approval*`. Compare is **dev only**, challenger vs champion.
+
+| Tag | On | Set by | Rule |
+|---|---|---|---|
+| `compare_result=go` \| `no-go` | `ml_dev` version | Compare / first-version path | Copy/register requires `go` |
+| `first_version=true` | `ml_dev` version | No prior `@champion` | Extra metadata; still `compare_result=go` |
+| `ready`, `go_version`, `train_run_id` | `ml_dev` version | `promotion_ready` (on go; `ready=false` has no `go_version`) | CI backup; pin from the **train run**, not live `@champion` |
+| `source_model_name`, `source_uri`, `source_model_version` | `ml_prod` version | `copy_register` (**always** these three) | Lineage; cutover pin-match |
+| `source_alias` | `ml_prod` version | `copy_register` **only** on champion-fallback path | Extra lineage; never a job param |
+| `previous_prod_version` | **new** `ml_prod` dest version | `deploy` | Rollback pointer (not stored on `@prod` during canary) |
+| `eda_table`, `xai_table` | `ml_dev` version | Train/XAI | Approver pointers |
+| key = `approval*` task key, value `Approved` | `ml_prod` dest version | **Approver**, not job SP | After **gate** success, before cutover |
+
+## Canonical jobs
+
+Names via variables. **Train job resource: `dev` target only.** **Promotion job resources: `prod` target only** (`promotion_gate`, `promotion_cutover`).
+
+**Dev train** (`run_as: ${var.train_run_as_sp}`, `max_concurrent_runs: 1`; optional schedule; monitor enqueue with cooldown): data checks → EDA (once) → features → train (`autolog`, no register in autolog) → log/register winner → `@challenger`+`@dev` → evaluate (absolute, holdout, `mode=dev` baked in task env) → **Compare** (after evaluate **success**; skip metric fight if no prior champion; **only tags**; **succeeds on no-go**) **in parallel with XAI** (XAI must not fail Compare) → **branch from Compare:** (a) **smokes** on `@dev` (not on `promotion_ready`); if a **dev** endpoint exists, pin it to that version and wait `READY`; never create a **prod** endpoint; (b) **`promotion_ready`:** on go set `ml_dev` `@champion` + `ready`/`go_version`/`train_run_id`; on no-go `ready=false` and **succeed**; it is the **only** task that sets `ml_dev` `@champion`. If train is a **single** notebook/`train.py`, order is evaluate → Compare → `promotion_ready` → XAI (or XAI in try/except). No standing Lakehouse monitors in this job.
+
+**Prod `promotion_gate`:** `copy_register` (names from bundle env; CI pin `go_version`; refuse unless `compare_result=go` and pin rules in MUST 4/8; `register_model` into dest; dest `@challenger`; lineage tags **always** include `source_model_version`; task value `model_version`) → evaluate `mode=prod_gate` (task value `model_version`).
+
+**Prod `promotion_cutover`:** `approval_check` (`max_retries: 0`; read `Approved` on pin-matched dest `@challenger`) → `deploy` (save previous `@prod`; set dest `@champion`; first promotion or canary off: `@prod` + serving 100% pinned + wait `READY`; canary on and previous exists: serving split only + wait `READY`) → optional canary/`metrics_gate`/`to_100`. `metrics_gate` / canary / `deploy` failure **runs rollback**. Repair after approval still `run_as` the SP.
+
+**Batch (both targets, scheduled):** prod `models:/…@prod`; dev `models:/…@dev`. MERGE gold: keys, score, `scored_at`, `model_version`. Same features as training. During prod canary, batch **still** uses `@prod` (pre-cutover version).
+
+**Serving:** DAB/MLflow deployments. Dev endpoint, when present, is updated to the current `@dev` **version**. Prod endpoint tracks `@prod` after cutover; canary uses two pinned versions + `traffic_config`. Inference logs → named UC table (bundle var).
+
+**Monitor (both targets, scheduled, not a train step):** named feature / prediction / label / inference tables. Profile, prediction drift, performance vs labels. Alert; enqueue **dev** train; write `${var.monitor_status_table}` at least (`as_of`, `gate_ok` boolean, `reason`, `job_run_id`). Prod evaluate blocks when latest `gate_ok` is not `true`.
+
+**data_checks minimum (both formats):** table exists; required columns/types; row count `>=` bundle min; null rate on keys/label below bundle max; primary-key uniqueness; if `event_time_col` set, time range + no future-label leak into the train slice. Fail closed. Write a small status row or MLflow metrics.
+
+**EDA minimum (both formats):** target definition, counts, dtypes, missingness, numeric/categorical summaries, target distribution, key/dup checks, leakage/target-in-feature checks; write `${var.eda_profile_table}` or MLflow artifacts.
+
+**XAI minimum (both formats):** load **dev** `@challenger` or the run LoggedModel (not `ml_prod` `@prod`); global importances; optional SHAP on a **sample**; persist `${var.xai_explanation_table}` + figures; never `set_registered_model_alias(..., "prod")`.
+
+**Dual-source pairs (variables):** data_checks, eda, features, train, evaluate, xai, compare, promotion_ready, copy_register, deploy, rollback, canary (optional), batch, monitor, smoke. Optional `approval` notebook/`.py` that **only reads** `Approved`. Never a twin that writes the tag. Layout: `notebooks/*.ipynb` + `src/*.py`. Python: `def main()` / `if __name__ == "__main__"`; no IPython magics. Notebooks import `src` when possible **and** show cells; inline copy if `notebook_task` cannot import siblings.
+
+## DAB and CI
+
+`databricks.yml` + `resources/<name>.<resource_type>.yml`: train (dev only, with EDA/XAI), `promotion_gate`, `promotion_cutover`, batch, monitor; optional SDP/prod features; registered models; endpoints; experiments; volumes; permissions; secret **references**. Target hosts/profiles: two workspaces ⇒ two `targets.*.workspace.host` entries; user picks the CLI profile (do not auto-pick). After YAML changes: `databricks bundle validate --strict --target` for **dev and prod**. Deploy/run via bundle CLI. Do not `update_registered_model(..., deployment_job_id=…)`. All prod changes = git + bundle deploy.
+
+```yaml
+# Illustrative sync — paths are variables / repo layout, not literal catalog names.
+targets:
+  dev:
+    resources:
+      jobs:
+        # include train (+ eda/xai/compare/promotion_ready/smoke), batch, monitor
+    sync:
+      include:
+        - notebooks/data_checks*
+        - notebooks/eda*
+        - notebooks/features*
+        - notebooks/train*
+        - notebooks/evaluate*
+        - notebooks/xai*
+        - notebooks/compare*
+        - notebooks/promotion_ready*
+        - notebooks/smoke*
+        - notebooks/batch*
+        - notebooks/monitor*
+        - src/**
+  prod:
+    resources:
+      jobs:
+        # include promotion_gate, promotion_cutover, batch, monitor — never train
+    sync:
+      include:
+        - notebooks/evaluate*
+        - notebooks/copy_register*
+        - notebooks/approval*
+        - notebooks/deploy*
+        - notebooks/rollback*
+        - notebooks/canary*
+        - notebooks/batch*
+        - notebooks/monitor*
+        - src/**
+```
+
+| Principal | `ml_dev` | `ml_prod` | Jobs / serving |
+|---|---|---|---|
+| Train Run as SP | `USE` catalog/schema; `SELECT` train tables; `MODIFY`/`CREATE TABLE` on feature/EDA/XAI; `CREATE MODEL` + `CREATE MODEL VERSION` + **`MANAGE` on the dev registered model** (aliases `@dev`/`@challenger`/`@champion`); `EXECUTE`; experiment write; secret scope READ | **No** model write, aliases, or prod gold `MODIFY` | `run_as` train only |
+| Promotion Run as SP | `EXECUTE` on source model | `USE`; `CREATE MODEL VERSION` (**not owner**); `EXECUTE`; **`MANAGE` on dest model** (aliases — residual risk MUST 15); `SELECT` features + eval/label + monitor status; secret scope READ | `run_as` **gate + cutover only**; update **prod** endpoint; **must not** `run_as` train |
+| Batch / monitor / prod feature SP | `SELECT` if it must read source features | `USE`; `SELECT` features/labels; `MODIFY` gold predictions + inference logs + monitor status; **no** model `MANAGE`/aliases | `run_as` those jobs (may equal promotion SP **except** it still must not train) |
+| CI trigger SP | — | — | `CAN_MANAGE_RUN` on **gate + cutover** (prod) to start/repair; **not** `run_as` if distinct |
+| Monitor / alert identity | — | — | `CAN_MANAGE_RUN` on **dev train only**; **never** on prod promotion jobs |
+| Approver group | `SELECT` EDA/XAI | `APPLY TAG` + view model; not `run_as`; not dest **owner** unless the user says so | `CAN_VIEW` both promotion jobs |
+| Everyone else | no | no inference-table `SELECT` | no prod `CAN_QUERY` unless required |
+
+Also: `CREATE MODEL` to create; `EXECUTE` to load/score; owner or `CREATE MODEL VERSION` for new versions; owner/`MANAGE` for **aliases**; owner/`APPLY TAG` for tags (`MANAGE` implies tagging). Cross-catalog copy: source `EXECUTE` + dest create-version. Serving permissions ≠ UC `EXECUTE`.
+
+## Snippets
+
+Copy **one block per job**. Do not put `PROD`, dest aliases, or `@champion` in train/Compare.
+
+```python
+# --- train / eda / xai (dev only). Catalog/model from bundle task env.
+import mlflow
+from mlflow.tracking import MlflowClient
+
+mlflow.set_registry_uri("databricks-uc")
+mlflow.set_experiment(experiment_path)  # parent folder must exist
+mlflow.autolog()  # explicit on serverless
+client = MlflowClient(registry_uri="databricks-uc")
+DEV = f"{dev_catalog}.{schema}.{model}"
+if str(dev_catalog) == str(prod_catalog):
+    raise RuntimeError("train/eda/xai/compare must not use prod_catalog")
+# never construct dest serving URI; never set @prod or any ml_prod alias
+client.set_registered_model_alias(DEV, "challenger", version)
+client.set_registered_model_alias(DEV, "dev", version)
+```
+
+```python
+# --- Compare (dev), after evaluate success — TAGS ONLY
+# client.set_model_version_tag(DEV, version, "compare_result", "go"|"no-go")
+# first version: also first_version=true and compare_result=go
+# do not set_registered_model_alias(..., "champion") here
+```
+
+```python
+# --- promotion_ready (dev). Only this task sets ml_dev @champion
+# on go:
+# client.set_registered_model_alias(DEV, "champion", version)
+# task values + tags: ready=true, go_version=version, train_run_id=...
+# on no-go: ready=false; succeed; do not move @champion
+```
+
+```python
+# --- copy_register (prod gate). Names from task env (bundle), not job params.
+# source_uri = models:/{source_model_name}/{source_model_version}  # CI pin
+# refuse empty pin unless allow_champion_fallback; refuse unless compare_result=go
+PROD = f"{prod_catalog}.{schema}.{model}"
+mv = mlflow.register_model(source_uri, PROD)
+client.set_registered_model_alias(PROD, "challenger", mv.version)
+client.set_model_version_tag(PROD, mv.version, "source_model_name", source_model_name)
+client.set_model_version_tag(PROD, mv.version, "source_uri", source_uri)
+client.set_model_version_tag(PROD, mv.version, "source_model_version", source_model_version)
+# taskValue model_version; do not set @champion/@prod here
+```
+
+```python
+# --- approval* (prod cutover): READ tag Approved on pin-matched dest version; never write
+# --- deploy: save previous @prod as task value AND dest tag previous_prod_version
+# set @prod + serving pin iff canary disabled or first promotion; else to_100
+# wait endpoint READY; canary metrics fail: rollback serving even if @prod unchanged
+# rollback: both aliases + serving → previous; never serve @challenger
+# NEVER client.update_registered_model(PROD, deployment_job_id=job_id)
+```
+
+```yaml
+resources:
+  registered_models:
+    ml_model:
+      name: ${var.model_name}  # owner: approver/admin group, NOT job_run_as_sp
+  jobs:
+    promotion_gate:
+      name: ${var.promotion_gate_job_name}
+      max_concurrent_runs: 1
+      run_as:
+        service_principal_name: ${var.job_run_as_sp}
+      parameters:
+        - name: source_model_version
+          default: ""
+        - name: promotion_reason
+          default: ""
+      tasks:
+        - task_key: copy_register
+          notebook_task:
+            notebook_path: ${var.copy_register_notebook_path}
+          # spark_python_task: python_file: ${var.copy_register_python_path}
+        - task_key: evaluate
+          depends_on: [{task_key: copy_register}]
+          notebook_task:
+            notebook_path: ${var.evaluate_notebook_path}
+          # mode=prod_gate + model names via task env
+    promotion_cutover:
+      name: ${var.promotion_cutover_job_name}
+      max_concurrent_runs: 1
+      run_as:
+        service_principal_name: ${var.job_run_as_sp}
+      parameters:
+        - name: source_model_version
+          default: ""
+        - name: promotion_reason
+          default: ""
+        # dest model_version: NOT a job param
+      tasks:
+        - task_key: approval_check
+          max_retries: 0
+          notebook_task:
+            notebook_path: ${var.approval_notebook_path}
+          # key MUST start with "approval"; READS Approved — never writes
+        - task_key: deploy
+          depends_on: [{task_key: approval_check}]
+          notebook_task:
+            notebook_path: ${var.deploy_notebook_path}
+        # optional canary_* / metrics_gate / to_100
+        - task_key: rollback
+          depends_on:
+            - {task_key: deploy}
+            # add canary_* / metrics_gate keys when those tasks exist
+          run_if: AT_LEAST_ONE_FAILED
+          notebook_task:
+            notebook_path: ${var.rollback_notebook_path}
+          # do not depend_on copy_register/evaluate; Jobs run_if — no invented outcome field
+      permissions:
+        - service_principal_name: ${var.ci_trigger_sp}
+          level: CAN_MANAGE_RUN
+        - group_name: ${var.approver_group}
+          level: CAN_VIEW
+```
+
+Batch prod: `spark_udf(..., f"models:/{PROD}@prod", ...)` or `fe.score_batch`. Dev: `@dev`.
+
+## MUST NOT
+
+WMR / stages / WMR webhooks; `staging` / shared catalog; hardcoded catalog/schema/table/model names in executable YAML/code; Train/EDA/XAI/Compare on prod promotion or synced into the prod workspace; **promotion/`copy_register`/cutover jobs on the `dev` target**; dest `@prod` versions from any path except `copy_register`; one SP for both train and promotion; overridable job params for source/dest **model names**, dest **model_version**, or evaluate `mode`; only-notebook or only-`.py` until the user chooses; delete the unused source tree; wire zero or two DAB task types on one task (empty tasks with no `notebook_path` / python file); double-run EDA; Genie/Playground as control plane; SDP named a training pipeline; `@prod` from train or `copy_register`/`approval*`; `ml_dev` `@champion` from Compare or train-register; auto `deployment_job_id`; Compare in prod; promote no-go or `@challenger`/`@dev`; CI copy of live `@champion` without `go_version` from the train run; CI empty `source_model_version`; same-run `approval*` read immediately after evaluate with no platform pause; make smokes depend on `promotion_ready`; fail the **train job** on Compare no-go; block `promotion_ready` on XAI failure; repair a succeeded `copy_register`; flip `@prod` at canary start, canary with no previous version, or leave canary traffic after a failed `metrics_gate` without rollback; rollback on failed `copy_register`/evaluate; secrets in widgets/params; human `run_as` on prod; unauthenticated prod endpoints; `spark_udf` after `fe.log_model(training_set=...)`; skill snippets that `set_registered_model_alias(..., "prod")` in train; standing monitors inside the train job; unbounded retrain-on-alert; unbounded raw PII in MLflow/`log_table`; invented cross-metastore copy; grant aliases with only `CREATE MODEL VERSION` (need `MANAGE` or owner).
+
+## GenAI / RAG / agents (only if asked)
+
+Do not replace MUST. Same `dev` train/log, dual sources, copy/register, `approval*`, `deploy`, `@prod`. Add `mlflow.genai.evaluate` + scorers; traces; prompt/agent versions as UC models or bundle artifacts; Vector Search as bundle resources when RAG; Agent Bricks / `agents.deploy` only when requested. Traces/logs follow the same ACL/PII rules. Still no `@prod` from the `dev` notebook and no “retrain the agent in prod” on the promotion job.

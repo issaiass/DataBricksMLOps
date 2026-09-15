@@ -1,0 +1,97 @@
+# Feature ETL for the active catalog. Not training; does not register models.
+resources:
+  jobs:
+    feature_refresh:
+      name: ${var.feature_refresh_job_name}
+      max_concurrent_runs: 1
+      tags:
+        example: binary_classifier
+        dataset: adult
+      schedule:
+        quartz_cron_expression: "0 0 5 * * ?"
+        timezone_id: UTC
+        pause_status: PAUSED
+      # run_as service_principal_name: ${var.job_run_as_sp}
+      # Dev smoke: deployer. Prod target still sets run_as job_run_as_sp.
+      environments:
+        - environment_key: ml_env
+          spec:
+            client: "4"
+            dependencies:
+              - scikit-learn==1.6.1
+              - pandas==2.2.3
+              - databricks-feature-engineering>=0.16.0
+              - "-e ${workspace.file_path}"
+
+      # permissions:
+      #   - service_principal_name: ${var.ci_trigger_sp}
+      #     level: CAN_MANAGE_RUN
+      #   - group_name: ${var.approver_group}
+      #     level: CAN_VIEW
+      tasks:
+        - task_key: seed
+          environment_key: ${var.env_key_feature_refresh_seed}
+          notebook_task:
+            notebook_path: ${var.seed_notebook_path}
+            base_parameters: &mlops_params
+              BUNDLE_ROOT: ${workspace.file_path}
+              DEV_CATALOG: ${var.dev_catalog}
+              PROD_CATALOG: ${var.prod_catalog}
+              CATALOG: ${var.catalog}
+              SCHEMA: ${var.schema}
+              MODEL_NAME: ${var.model_name}
+              SOURCE_MODEL_NAME: ${var.source_model_name}
+              DEST_MODEL_NAME: ${var.dest_model_name}
+              EVALUATE_MODE: ${var.evaluate_mode}
+              BATCH_ALIAS: ${var.batch_alias}
+              ALLOW_CHAMPION_FALLBACK: ${var.allow_champion_fallback}
+              ALLOW_CANARY: ${var.allow_canary}
+              EXPERIMENT_PATH: ${var.experiment_path}
+              ENDPOINT_NAME: ${var.endpoint_name}
+              JOB_RUN_AS_SP: ${var.job_run_as_sp}
+              TRAIN_RUN_AS_SP: ${var.train_run_as_sp}
+              APPROVER_IDENTITIES: ${var.approver_identities}
+              COMPARE_METRIC: ${var.compare_metric}
+              COMPARE_HIGHER_IS_BETTER: ${var.compare_higher_is_better}
+              COMPARE_MARGIN: ${var.compare_margin}
+              MIN_EVAL_ROWS: ${var.min_eval_rows}
+              MIN_TABLE_ROWS: ${var.min_table_rows}
+              MAX_NULL_RATE: ${var.max_null_rate}
+              LABEL_WINDOW: ${var.label_window}
+              EVAL_MIN_ROC_AUC: ${var.eval_min_roc_auc}
+              TRAIN_SEED: ${var.train_seed}
+              CANARY_PERCENT: ${var.canary_percent}
+              CANARY_WARMUP_S: ${var.canary_warmup_s}
+              ENV_MANAGER: ${var.env_manager}
+              SECRET_SCOPE: ${var.secret_scope}
+              RAW_TABLE: ${var.raw_table}
+              FEATURE_TABLE: ${var.feature_table}
+              LABEL_TABLE: ${var.label_table}
+              PREDICTIONS_TABLE: ${var.predictions_table}
+              INFERENCE_TABLE: ${var.inference_table}
+              EDA_PROFILE_TABLE: ${var.eda_profile_table}
+              XAI_EXPLANATION_TABLE: ${var.xai_explanation_table}
+              MONITOR_STATUS_TABLE: ${var.monitor_status_table}
+              LABEL_COL: ${var.label_col}
+              ID_COL: ${var.id_col}
+              EVENT_TIME_COL: ${var.event_time_col}
+            # spark_python_task:
+            #   python_file: ${var.seed_python_path}
+        - task_key: data_checks
+          depends_on:
+            - task_key: seed
+          environment_key: ${var.env_key_feature_refresh_data_checks}
+          notebook_task:
+            notebook_path: ${var.data_checks_notebook_path}
+            base_parameters: *mlops_params
+            # spark_python_task:
+            #   python_file: ${var.data_checks_python_path}
+        - task_key: features
+          depends_on:
+            - task_key: data_checks
+          environment_key: ${var.env_key_feature_refresh_features}
+          notebook_task:
+            notebook_path: ${var.features_notebook_path}
+            base_parameters: *mlops_params
+            # spark_python_task:
+            #   python_file: ${var.features_python_path}

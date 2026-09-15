@@ -1,0 +1,30 @@
+# Shared Unity Catalog objects for the active target catalog.
+# Create ml_dev / ml_prod catalogs once as an admin if they do not exist.
+resources:
+  schemas:
+    example_schema:
+      name: ${var.schema}
+      catalog_name: ${var.catalog}
+      comment: Adult Census Income binary classifier example
+
+  volumes:
+    mlops_files:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: ${var.volume_name}
+      volume_type: MANAGED
+      comment: Non-secret files for the Adult income example
+
+  experiments:
+    ml_experiment:
+      name: ${var.experiment_path}
+
+  registered_models:
+    ml_model:
+      name: ${var.model_name}
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      comment: >-
+        Adult Census Income (>50K) binary classifier.
+        Owner should be an admin/approver group, not job_run_as_sp.
+        Dest versions that can become @prod are created only by copy_register.
