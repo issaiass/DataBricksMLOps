@@ -1,0 +1,75 @@
+# Dual-source paths. YAML wires notebook_task; python_path is the unused twin (do not delete).
+# Paths are relative to job YAML under resources/dev|prod|shared (two levels up to bundle root).
+variables:
+  data_checks_notebook_path:
+    default: ../../notebooks/n01_dev_train/n02_data_checks.ipynb
+  data_checks_python_path:
+    default: ../../src/n01_dev_train/n02_data_checks.py
+  eda_notebook_path:
+    default: ../../notebooks/n01_dev_train/n03_eda.ipynb
+  eda_python_path:
+    default: ../../src/n01_dev_train/n03_eda.py
+  features_notebook_path:
+    default: ../../notebooks/n01_dev_train/n04_features.ipynb
+  features_python_path:
+    default: ../../src/n01_dev_train/n04_features.py
+  train_notebook_path:
+    default: ../../notebooks/n01_dev_train/n05_train.ipynb
+  train_python_path:
+    default: ../../src/n01_dev_train/n05_train.py
+  evaluate_notebook_path:
+    default: ../../notebooks/n01_dev_train/n06_evaluate.ipynb
+  evaluate_python_path:
+    default: ../../src/n01_dev_train/n06_evaluate.py
+  xai_notebook_path:
+    default: ../../notebooks/n01_dev_train/n08_xai.ipynb
+  xai_python_path:
+    default: ../../src/n01_dev_train/n08_xai.py
+  compare_notebook_path:
+    default: ../../notebooks/n01_dev_train/n07_compare.ipynb
+  compare_python_path:
+    default: ../../src/n01_dev_train/n07_compare.py
+  promotion_ready_notebook_path:
+    default: ../../notebooks/n01_dev_train/n09_promotion_ready.ipynb
+  promotion_ready_python_path:
+    default: ../../src/n01_dev_train/n09_promotion_ready.py
+  copy_register_notebook_path:
+    default: ../../notebooks/n02_prod_gate/n01_copy_register.ipynb
+  copy_register_python_path:
+    default: ../../src/n02_prod_gate/n01_copy_register.py
+  approval_notebook_path:
+    default: ../../notebooks/n03_prod_cutover/n01_approval.ipynb
+  approval_python_path:
+    default: ../../src/n03_prod_cutover/n01_approval.py
+  deploy_notebook_path:
+    default: ../../notebooks/n03_prod_cutover/n02_deploy.ipynb
+  deploy_python_path:
+    default: ../../src/n03_prod_cutover/n02_deploy.py
+  rollback_notebook_path:
+    default: ../../notebooks/n03_prod_cutover/n04_rollback.ipynb
+  rollback_python_path:
+    default: ../../src/n03_prod_cutover/n04_rollback.py
+  canary_notebook_path:
+    default: ../../notebooks/n03_prod_cutover/n03_canary.ipynb
+  canary_python_path:
+    default: ../../src/n03_prod_cutover/n03_canary.py
+  batch_notebook_path:
+    default: ../../notebooks/n04_ops/n01_batch.ipynb
+  batch_python_path:
+    default: ../../src/n04_ops/n01_batch.py
+  monitor_notebook_path:
+    default: ../../notebooks/n04_ops/n02_monitor.ipynb
+  monitor_python_path:
+    default: ../../src/n04_ops/n02_monitor.py
+  smoke_notebook_path:
+    default: ../../notebooks/n01_dev_train/n10_smoke.ipynb
+  smoke_python_path:
+    default: ../../src/n01_dev_train/n10_smoke.py
+  seed_notebook_path:
+    default: ../../notebooks/n01_dev_train/n01_seed.ipynb
+  seed_python_path:
+    default: ../../src/n01_dev_train/n01_seed.py
+  cleanup_notebook_path:
+    default: ../../notebooks/n04_ops/n03_cleanup.ipynb
+  cleanup_python_path:
+    default: ../../src/n04_ops/n03_cleanup.py

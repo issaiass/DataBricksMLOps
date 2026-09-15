@@ -1,0 +1,160 @@
+# Compute: serverless (environment_key=ml_env). This workspace is serverless-only:
+# do not attach job_clusters / job_cluster_key on deployable jobs (API 400).
+# Classic vars remain for workspaces that allow classic job clusters.
+#
+# Override one task: env_key_<job>_<task> (serverless) or cluster_key_<job>_<task> (classic).
+# Job-level keys inherit from env_key / cluster_key. Leave cluster_key empty for serverless.
+variables:
+  compute_mode:
+    description: serverless (default) or classic. Pair with env_key / cluster_key.
+    default: serverless
+  classic_node_type_id:
+    description: Classic job-cluster node type (AWS general purpose)
+    default: r5d.2xlarge
+  classic_spark_version:
+    default: 15.4.x-cpu-ml-scala2.12
+  classic_min_workers:
+    description: Classic cluster min workers (not single-node). Default 3; keep in 3-6.
+    default: "3"
+  classic_max_workers:
+    description: Classic cluster max workers (autoscale). Default 6; keep in 3-6.
+    default: "6"
+  classic_data_security_mode:
+    default: SINGLE_USER
+  env_key:
+    description: Serverless environment key. Empty when using classic_ml.
+    default: ml_env
+  cluster_key:
+    description: Job cluster key. Empty for serverless. Set classic_ml for classic.
+    default: ""
+
+  env_key_train:
+    default: ${var.env_key}
+  cluster_key_train:
+    default: ${var.cluster_key}
+  env_key_train_seed:
+    default: ${var.env_key_train}
+  cluster_key_train_seed:
+    default: ${var.cluster_key_train}
+  env_key_train_data_checks:
+    default: ${var.env_key_train}
+  cluster_key_train_data_checks:
+    default: ${var.cluster_key_train}
+  env_key_train_eda:
+    default: ${var.env_key_train}
+  cluster_key_train_eda:
+    default: ${var.cluster_key_train}
+  env_key_train_features:
+    default: ${var.env_key_train}
+  cluster_key_train_features:
+    default: ${var.cluster_key_train}
+  env_key_train_train:
+    default: ${var.env_key_train}
+  cluster_key_train_train:
+    default: ${var.cluster_key_train}
+  env_key_train_evaluate:
+    default: ${var.env_key_train}
+  cluster_key_train_evaluate:
+    default: ${var.cluster_key_train}
+  env_key_train_compare:
+    default: ${var.env_key_train}
+  cluster_key_train_compare:
+    default: ${var.cluster_key_train}
+  env_key_train_xai:
+    default: ${var.env_key_train}
+  cluster_key_train_xai:
+    default: ${var.cluster_key_train}
+  env_key_train_promotion_ready:
+    default: ${var.env_key_train}
+  cluster_key_train_promotion_ready:
+    default: ${var.cluster_key_train}
+  env_key_train_smoke:
+    default: ${var.env_key_train}
+  cluster_key_train_smoke:
+    default: ${var.cluster_key_train}
+
+  env_key_feature_refresh:
+    default: ${var.env_key}
+  cluster_key_feature_refresh:
+    default: ${var.cluster_key}
+  env_key_feature_refresh_seed:
+    default: ${var.env_key_feature_refresh}
+  cluster_key_feature_refresh_seed:
+    default: ${var.cluster_key_feature_refresh}
+  env_key_feature_refresh_data_checks:
+    default: ${var.env_key_feature_refresh}
+  cluster_key_feature_refresh_data_checks:
+    default: ${var.cluster_key_feature_refresh}
+  env_key_feature_refresh_features:
+    default: ${var.env_key_feature_refresh}
+  cluster_key_feature_refresh_features:
+    default: ${var.cluster_key_feature_refresh}
+
+  env_key_batch:
+    default: ${var.env_key}
+  cluster_key_batch:
+    default: ${var.cluster_key}
+  env_key_batch_batch:
+    default: ${var.env_key_batch}
+  cluster_key_batch_batch:
+    default: ${var.cluster_key_batch}
+
+  env_key_monitor:
+    default: ${var.env_key}
+  cluster_key_monitor:
+    default: ${var.cluster_key}
+  env_key_monitor_monitor:
+    default: ${var.env_key_monitor}
+  cluster_key_monitor_monitor:
+    default: ${var.cluster_key_monitor}
+
+  env_key_cleanup:
+    default: ${var.env_key}
+  cluster_key_cleanup:
+    default: ${var.cluster_key}
+  env_key_cleanup_cleanup:
+    default: ${var.env_key_cleanup}
+  cluster_key_cleanup_cleanup:
+    default: ${var.cluster_key_cleanup}
+
+  env_key_promotion_gate:
+    default: ${var.env_key}
+  cluster_key_promotion_gate:
+    default: ${var.cluster_key}
+  env_key_promotion_gate_copy_register:
+    default: ${var.env_key_promotion_gate}
+  cluster_key_promotion_gate_copy_register:
+    default: ${var.cluster_key_promotion_gate}
+  env_key_promotion_gate_evaluate:
+    default: ${var.env_key_promotion_gate}
+  cluster_key_promotion_gate_evaluate:
+    default: ${var.cluster_key_promotion_gate}
+
+  env_key_promotion_cutover:
+    default: ${var.env_key}
+  cluster_key_promotion_cutover:
+    default: ${var.cluster_key}
+  env_key_promotion_cutover_approval_check:
+    default: ${var.env_key_promotion_cutover}
+  cluster_key_promotion_cutover_approval_check:
+    default: ${var.cluster_key_promotion_cutover}
+  env_key_promotion_cutover_deploy:
+    default: ${var.env_key_promotion_cutover}
+  cluster_key_promotion_cutover_deploy:
+    default: ${var.cluster_key_promotion_cutover}
+  env_key_promotion_cutover_canary_start:
+    default: ${var.env_key_promotion_cutover}
+  cluster_key_promotion_cutover_canary_start:
+    default: ${var.cluster_key_promotion_cutover}
+  env_key_promotion_cutover_metrics_gate:
+    default: ${var.env_key_promotion_cutover}
+  cluster_key_promotion_cutover_metrics_gate:
+    default: ${var.cluster_key_promotion_cutover}
+  env_key_promotion_cutover_to_100:
+    default: ${var.env_key_promotion_cutover}
+  cluster_key_promotion_cutover_to_100:
+    default: ${var.cluster_key_promotion_cutover}
+  env_key_promotion_cutover_rollback:
+    default: ${var.env_key_promotion_cutover}
+  cluster_key_promotion_cutover_rollback:
+    default: ${var.cluster_key_promotion_cutover}

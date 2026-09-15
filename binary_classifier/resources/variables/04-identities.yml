@@ -1,0 +1,19 @@
+# Service principals and approvers. Scope *names* only — never secret values.
+# train_run_as_sp must differ from job_run_as_sp.
+variables:
+  secret_scope:
+    description: Scope name only (never secret values)
+    default: mlops-adult
+  train_run_as_sp:
+    description: Train job Run as application ID (must differ from job_run_as_sp)
+    default: REPLACE_ME_TRAIN_SP
+  job_run_as_sp:
+    description: Promotion / batch / monitor Run as application ID
+    default: REPLACE_ME_JOB_SP
+  ci_trigger_sp:
+    default: REPLACE_ME_CI_SP
+  approver_group:
+    default: mlops-approvers
+  approver_identities:
+    description: Comma-separated emails or SP application IDs allowed to tag Approved
+    default: REPLACE_ME_APPROVER@example.com

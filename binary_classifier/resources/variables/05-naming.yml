@@ -1,0 +1,42 @@
+# Jobs UI names, MLflow experiment paths, and target-overridden aliases/modes.
+variables:
+  dataset_shortname:
+    description: Dataset label in Jobs UI ([<target> <user>] <dataset>-<model>-<job-type>)
+    default: adult
+  job_user_shortname:
+    description: Deployer handle (email local-part) in Jobs UI names
+    default: ${workspace.current_user.short_name}
+  train_job_name:
+    default: "[${bundle.target} ${var.job_user_shortname}] ${var.dataset_shortname}-${var.model_name}-train"
+  promotion_gate_job_name:
+    default: "[${bundle.target} ${var.job_user_shortname}] ${var.dataset_shortname}-${var.model_name}-promotion-gate"
+  promotion_cutover_job_name:
+    default: "[${bundle.target} ${var.job_user_shortname}] ${var.dataset_shortname}-${var.model_name}-promotion-cutover"
+  batch_job_name:
+    default: "[${bundle.target} ${var.job_user_shortname}] ${var.dataset_shortname}-${var.model_name}-predict"
+  monitor_job_name:
+    default: "[${bundle.target} ${var.job_user_shortname}] ${var.dataset_shortname}-${var.model_name}-monitor"
+  cleanup_job_name:
+    default: "[${bundle.target} ${var.job_user_shortname}] ${var.dataset_shortname}-${var.model_name}-cleanup"
+  feature_refresh_job_name:
+    default: "[${bundle.target} ${var.job_user_shortname}] ${var.dataset_shortname}-${var.model_name}-feature-store"
+  experiment_shortname:
+    description: MLflow experiment leaf name (same binder for all notebooks on a target)
+    default: uc-adult-xgb
+  dev_experiment_path:
+    default: "/Shared/mlops/binary_classifier/[dev ${var.job_user_shortname}] ${var.experiment_shortname}"
+  prod_experiment_path:
+    default: "/Shared/mlops/binary_classifier/[prod ${var.job_user_shortname}] ${var.experiment_shortname}"
+  experiment_path:
+    default: "/Shared/mlops/binary_classifier/[${bundle.target} ${var.job_user_shortname}] ${var.experiment_shortname}"
+  evaluate_mode:
+    description: Baked per job. Train uses dev; promotion_gate uses prod_gate.
+    default: dev
+  batch_alias:
+    description: UC alias batch reads (dev or prod). Not an operator param.
+    default: dev
+  predict_mode:
+    description: Prediction backend. batch (default, fe.score_batch) or serving.
+    default: batch
+  endpoint_name:
+    default: adult-income-clf

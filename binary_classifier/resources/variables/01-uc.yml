@@ -1,0 +1,49 @@
+# Unity Catalog names. Never hardcode these in jobs/notebooks — use ${var.*}.
+# Both catalogs exist on every target so train/EDA/XAI/Compare can abort on prod_catalog.
+variables:
+  dev_catalog:
+    description: Unity Catalog for training and the source registered model
+    default: ml_dev
+  prod_catalog:
+    description: Unity Catalog for the dest registered model and prod scoring
+    default: ml_prod
+  catalog:
+    description: Active catalog for this bundle target (never a job parameter)
+    default: ml_dev
+  schema:
+    description: Schema for this example
+    default: adult_income
+  model_name:
+    description: Registered model name (unqualified)
+    default: adult_income_clf
+  source_model_name:
+    description: Fully qualified source model (ml_dev)
+    default: ml_dev.adult_income.adult_income_clf
+  dest_model_name:
+    description: Fully qualified dest model (ml_prod)
+    default: ml_prod.adult_income.adult_income_clf
+  raw_table:
+    default: adult_raw
+  feature_table:
+    default: adult_features
+  label_table:
+    default: adult_labels
+  predictions_table:
+    default: adult_predictions
+  inference_table:
+    default: adult_inference_logs
+  eda_profile_table:
+    default: adult_eda_profile
+  xai_explanation_table:
+    default: adult_xai
+  monitor_status_table:
+    default: adult_monitor_status
+  label_col:
+    default: income_gt_50k
+  id_col:
+    default: row_id
+  event_time_col:
+    description: Empty = no time-based split (Adult has no event time)
+    default: ""
+  volume_name:
+    default: mlops_files

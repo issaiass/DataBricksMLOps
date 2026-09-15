@@ -1,0 +1,31 @@
+# Evaluate / Compare bars and serving canary. Baked into task env, not operator job params.
+variables:
+  compare_metric:
+    default: roc_auc
+  compare_higher_is_better:
+    default: "true"
+  compare_margin:
+    default: "0.0"
+  min_eval_rows:
+    default: "200"
+  min_table_rows:
+    default: "200"
+  max_null_rate:
+    default: "0.4"
+  label_window:
+    default: "P365D"
+  eval_min_roc_auc:
+    default: "0.70"
+  train_seed:
+    default: "42"
+  allow_champion_fallback:
+    description: Baked into task env only. Default refuse empty CI pins.
+    default: "false"
+  allow_canary:
+    default: "false"
+  canary_percent:
+    default: "10"
+  canary_warmup_s:
+    default: "120"
+  env_manager:
+    default: local
